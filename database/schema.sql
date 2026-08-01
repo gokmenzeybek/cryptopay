@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS wallets (
     address VARCHAR(34) UNIQUE NOT NULL,
     public_key TEXT NOT NULL,
     is_active BOOLEAN DEFAULT true,
+    role VARCHAR(20) DEFAULT 'buyer' CHECK (role IN ('buyer', 'seller')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_activity TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -24,6 +25,16 @@ CREATE TABLE IF NOT EXISTS wallets (
 -- Index for wallet lookups
 CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(address);
 CREATE INDEX IF NOT EXISTS idx_wallets_active ON wallets(is_active);
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'wallets' AND column_name = 'role'
+    ) THEN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_wallets_role ON wallets(role)';
+    END IF;
+END $$;
 
 -- ==============================================================================
 -- Auth Challenges Table
@@ -213,7 +224,11 @@ INSERT INTO system_settings (key, value, description) VALUES
 ('order_expiry_minutes', '30', 'Default order expiry time in minutes'),
 ('max_orders_per_user', '10', 'Maximum number of open orders per user'),
 ('min_order_amount_xrp', '1.0', 'Minimum order amount in XRP'),
-('max_order_amount_xrp', '10000.0', 'Maximum order amount in XRP')
+('max_order_amount_xrp', '10000.0', 'Maximum order amount in XRP'),
+('sponsor_seed', '', 'Seed of the platform account that sponsors burner reserves'),
+('sponsor_address', '', 'Address of the sponsor account'),
+('burner_sweep_interval_ms', '60000', 'Burner wallet sweeper interval in ms'),
+('burner_destroy_delay_ms', '960000', 'Burner wallet destroy age delay in ms')
 ON CONFLICT (key) DO NOTHING;
 
 -- ==============================================================================
@@ -329,3 +344,19 @@ CREATE TABLE IF NOT EXISTS papara_payments (
 
 CREATE INDEX IF NOT EXISTS idx_papara_payments_reference_id ON papara_payments(reference_id);
 CREATE INDEX IF NOT EXISTS idx_papara_payments_order_id ON papara_payments(order_id);
+
+-- ==============================================================================
+-- Burner Wallets Table (two-tier users: guest buyer wallets)
+-- ==============================================================================
+-- Lifecycle metadata only — the seed is NEVER stored here. burnerWalletService
+-- keeps it in-memory (TTL'd) and destroys the account via AccountDelete.
+CREATE TABLE IF NOT EXISTS burner_wallets (
+    address      VARCHAR(34) PRIMARY KEY,
+    order_id     VARCHAR(36),
+    status       VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'sweep_pending', 'destroyed')),
+    funded_at    TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    deleted_at   TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_burner_wallets_status ON burner_wallets(status);

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
+import { useXRPL } from '../hooks/useXRPL';
 import theme from '../theme';
 
 /**
@@ -46,11 +47,29 @@ const SettingsButton = styled(Link)`
   }
 `;
 
-const Header = () => (
-  <HeaderContainer>
-    <Wordmark to="/">cryptopay</Wordmark>
-    <SettingsButton to="/settings" aria-label="Settings">⚙</SettingsButton>
-  </HeaderContainer>
-);
+const GuestBadge = styled.span`
+  background: ${theme.color.surface};
+  color: ${theme.color.inkSoft};
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+`;
+
+const Header = () => {
+  const { sessionType } = useXRPL();
+  return (
+    <HeaderContainer>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <Wordmark to="/">cryptopay</Wordmark>
+        {sessionType === 'buyer' && <GuestBadge>guest</GuestBadge>}
+      </div>
+      <SettingsButton to="/settings" aria-label="Settings">⚙</SettingsButton>
+    </HeaderContainer>
+  );
+};
 
 export default Header;

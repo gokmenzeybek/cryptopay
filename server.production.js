@@ -45,6 +45,7 @@ const logger = require('./utils/logger');
 const tryRateScraperService = require('./services/tryRateScraperService');
 const p2pMatchingService = require('./services/p2pMatchingService');
 const xrplEscrowService = require('./services/xrplEscrowService');
+const burnerWalletService = require('./services/burnerWalletService');
 const { initWebSocketServer, broadcastOrderUpdate } = require('./services/websocketService');
 
 // Import database modules
@@ -426,6 +427,28 @@ app.post('/api/auth/verify',
 );
 
 // ==============================================================================
+// BURNER WALLET ENDPOINTS (two-tier users)
+// ==============================================================================
+
+// Create a fresh burner wallet for a guest buyer session. The platform
+// sponsors exactly the base reserve (0 spendable XRP); the seed is returned
+// once and never persisted server-side. Aggressively rate-limited to prevent
+// account farming.
+app.post('/api/burner/wallets',
+  createRateLimiter(15 * 60 * 1000, parseInt(process.env.RATE_LIMIT_BURNER) || 3),
+  catchAsync(async (req, res) => {
+    const burner = await burnerWalletService.createBurner();
+    res.status(201).json({
+      success: true,
+      address: burner.address,
+      seed: burner.seed,
+      reserveXrp: burner.reserveXrp,
+      token: burner.token
+    });
+  })
+);
+
+// ==============================================================================
 // P2P TRY-XRP CONVERSION API ENDPOINTS
 // ==============================================================================
 
@@ -658,6 +681,16 @@ app.post('/api/p2p/create-order',
         success: false,
         error: 'Forbidden',
         message: 'Cannot create order for another wallet address'
+      });
+    }
+
+    // Two-tier users: only verified sellers may post sell orders. Buy orders
+    // remain open to any role (buyers trade from burner wallets).
+    if (type === 'sell' && req.user.role !== 'seller') {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'Only verified sellers can create sell orders'
       });
     }
 
@@ -1109,6 +1142,24 @@ app.post('/api/p2p/confirm-xrp',
 
     // Update in database
     await P2POrdersDAL.update(businessId(order), order);
+
+    // If this completed trade's buyer used a burner wallet, flag it for the
+    // AccountDelete sweeper (non-fatal — the sweeper also re-checks order
+    // status on its own pass).
+    if ((order.status === 'completed') && burnerWalletService) {
+      const buyerAddress = (order.order_type || order.type) === 'buy'
+        ? (order.xrpl_address || order.xrplAddress)
+        : (order.counterparty_address || order.counterpartyAddress);
+      if (buyerAddress) {
+        try {
+          await burnerWalletService.markOrderSettled(buyerAddress, orderId);
+        } catch (err) {
+          logger.warn('Could not mark burner settled (non-fatal)', {
+            orderId, address: buyerAddress, error: err.message
+          });
+        }
+      }
+    }
 
     // If an escrow is locked for this trade, prepare the EscrowFinish.
     // The escrow stays 'finish_pending' until the EscrowFinish hash is
@@ -1719,6 +1770,54 @@ app.post('/api/moderator/resolve-dispute',
         status: updated.status
       },
       ...(escrowResult ? { escrow: escrowResult } : {})
+    });
+  })
+);
+
+// List wallets with their role (sellers first) for the moderator dashboard
+app.get('/api/moderator/sellers',
+  moderatorMiddleware,
+  createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_READ) || 30),
+  catchAsync(async (req, res) => {
+    const all = await WalletsDAL.getAll();
+    const sellers = all.filter((w) => w.role === 'seller');
+
+    res.json({
+      success: true,
+      count: all.length,
+      sellers,
+      wallets: all
+    });
+  })
+);
+
+// Promote/demote a verified seller: set wallets.role to 'seller' | 'buyer'
+app.post('/api/moderator/sellers',
+  moderatorMiddleware,
+  createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_CONVERSION) || 20),
+  [
+    validateXRPLAddress('address'),
+    body('role').isIn(['seller', 'buyer']).withMessage('Role must be seller or buyer'),
+    validateRequest
+  ],
+  catchAsync(async (req, res) => {
+    const { address, role } = req.body;
+
+    const updated = await WalletsDAL.setRole(address, role);
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        error: 'Wallet not found',
+        message: 'No wallet with that address is registered yet — the seller must complete signup first'
+      });
+    }
+
+    logger.logP2P('seller_role_updated', { address, role });
+
+    res.json({
+      success: true,
+      message: `Wallet role set to ${role}`,
+      wallet: updated
     });
   })
 );
@@ -2568,6 +2667,11 @@ const startServer = async () => {
       };
       const escrowTimer = setInterval(sweepExpiredEscrows, escrowSweepInterval);
       escrowTimer.unref();
+
+      // Burner-wallet sweeper (two-tier users): destroys guest buyer wallets
+      // whose session is over via AccountDelete, recovering the sponsored
+      // reserve. No-op when SPONSOR_SEED is not configured.
+      burnerWalletService.startSweeper();
 
       // Payment-request expiry sweep (PRODUCT_PLAN §10.3 / M3).
       // Marks pending requests whose expires_at has passed as 'expired'.

@@ -42,6 +42,9 @@ export const XRPLProvider = ({ children }) => {
   const [balance, setBalance] = useState('0');
   const [loading, setLoading] = useState(false);
   const [apiBaseUrl, setApiBaseUrl] = useState('');
+  // Two-tier users: 'seller' = persistent wallet (verified sellers), 'buyer' =
+  // temporary guest burner session. Null until a wallet is created/loaded.
+  const [sessionType, setSessionType] = useState(null);
 
   // Password bridge (M1): askPassword() opens UnlockModal and resolves with
   // the entered password (or null on cancel). In tests there is no modal
@@ -83,6 +86,31 @@ export const XRPLProvider = ({ children }) => {
       await new Promise(r => setTimeout(r, delayMs));
     }
     throw new Error('Transaction not validated in time');
+  }
+
+  /**
+   * Read the current base reserve (XRP) from server_info. Never hardcoded —
+   * the reserve can change on-ledger. Handles both the canonical
+   * `reserve_base_xrp` (XRP) field and legacy/mocked `reserve_base` /
+   * `base_reserve_xrp` (drops) variants. Falls back to 1 XRP.
+   */
+  async function readBaseReserve(client) {
+    try {
+      const serverInfo = await client.request({ command: 'server_info' });
+      const led = serverInfo && serverInfo.result && serverInfo.result.info && serverInfo.result.info.validated_ledger;
+      if (led && led.reserve_base_xrp) {
+        return parseFloat(led.reserve_base_xrp) || 1;
+      }
+      if (led && led.reserve_base) {
+        return parseFloat(window.xrpl.dropsToXrp(String(led.reserve_base))) || 1;
+      }
+      if (led && led.base_reserve_xrp) {
+        return parseFloat(window.xrpl.dropsToXrp(String(led.base_reserve_xrp))) || 1;
+      }
+      return 1;
+    } catch (_) {
+      return 1;
+    }
   }
 
   // Get API base URL: REACT_APP_API_URL env first (CRA dev setups), same
@@ -168,6 +196,7 @@ export const XRPLProvider = ({ children }) => {
 
       setWallet(newWallet);
       setBalance(fundResult.balance);
+      setSessionType('seller');
 
       const walletData = {
         address: newWallet.address,
@@ -232,6 +261,7 @@ export const XRPLProvider = ({ children }) => {
       const { seed } = await loadWalletEncrypted(password);
       const newWallet = window.xrpl.Wallet.fromSeed(seed);
       setWallet(newWallet);
+      setSessionType('seller');
 
       if (client) {
         const walletBalance = await client.getXrpBalance(newWallet.address);
@@ -261,6 +291,47 @@ export const XRPLProvider = ({ children }) => {
     }
   };
 
+  // Create a temporary guest "burner" wallet (two-tier users). The platform
+  // sponsors exactly the base reserve — the buyer starts with 0 spendable XRP.
+  // The seed is held in React state only (never walletStorage/localStorage)
+  // and the account is destroyed after the session.
+  const createBurnerWallet = async () => {
+    try {
+      setLoading(true);
+      toast.info('Creating a temporary wallet…');
+      if (!apiBaseUrl) {
+        throw new Error('API base URL not ready');
+      }
+
+      const res = await fetch(`${apiBaseUrl}/api/burner/wallets`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to create a temporary wallet');
+      }
+
+      const burnerWallet = window.xrpl.Wallet.fromSeed(data.seed);
+      if (!isConnected || !client) {
+        await connectToXRPL();
+      }
+
+      setWallet(burnerWallet);
+      setBalance('0'); // reserve is sponsored, not spendable
+      setSessionType('buyer');
+
+      // Use the short-lived guest JWT the server issued directly.
+      authService.setBaseUrl(apiBaseUrl);
+      authService.setToken(data.token);
+
+      return burnerWallet;
+    } catch (error) {
+      console.error('Error creating burner wallet:', error);
+      toast.error(`Error creating temporary wallet: ${error.message}`);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Send payment
   const sendPayment = async (recipientAddress, amount, memo = '') => {
     try {
@@ -275,7 +346,7 @@ export const XRPLProvider = ({ children }) => {
       }
 
       // Pre-send balance check (PRD 4.4.4): balance must cover
-      // amount + fee + the 10 XRP base reserve.
+      // amount + fee + the dynamic base reserve.
       const sendAmount = parseFloat(amount);
       if (!Number.isFinite(sendAmount) || sendAmount <= 0) {
         throw new Error('Amount must be a positive number');
@@ -283,12 +354,12 @@ export const XRPLProvider = ({ children }) => {
       const currentBalance = parseFloat(await client.getXrpBalance(wallet.address));
       setBalance(currentBalance.toString());
       const ESTIMATED_FEE_XRP = 0.000012;
-      const BASE_RESERVE_XRP = 10;
-      const required = sendAmount + ESTIMATED_FEE_XRP + BASE_RESERVE_XRP;
+      const baseReserveXrp = await readBaseReserve(client);
+      const required = sendAmount + ESTIMATED_FEE_XRP + baseReserveXrp;
       if (currentBalance < required) {
         throw new Error(
           `Insufficient balance: you need at least ${required.toFixed(6)} XRP ` +
-          `(${sendAmount} amount + fee + ${BASE_RESERVE_XRP} XRP base reserve), ` +
+          `(${sendAmount} amount + fee + ${baseReserveXrp} XRP base reserve), ` +
           `but the wallet holds ${currentBalance} XRP`
         );
       }
@@ -304,10 +375,6 @@ export const XRPLProvider = ({ children }) => {
         });
       } catch (error) {
         if (error && error.data && error.data.error === 'actNotFound') {
-          const serverInfo = await client.request({ command: 'server_info' });
-          const baseReserveXrp = parseFloat(window.xrpl.dropsToXrp(
-            String(serverInfo.result.info.validated_ledger.base_reserve_xrp)
-          ));
           if (parseFloat(amount) < baseReserveXrp) {
             throw new Error(
               `Recipient account is unfunded — the first payment must be at least the base reserve (${baseReserveXrp} XRP)`
@@ -432,7 +499,9 @@ export const XRPLProvider = ({ children }) => {
       || (apiBaseUrl ? apiBaseUrl.replace(/^http/, 'ws') : null),
     connectToXRPL,
     createWallet,
+    createBurnerWallet,
     loadExistingWallet,
+    sessionType,
     refreshBalance,
     sendPayment,
     waitForValidation,

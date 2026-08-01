@@ -103,7 +103,7 @@ describe('Authentication & JWT Session Management', () => {
 
       await authMiddleware(req, res, next);
       expect(pool.query).toHaveBeenCalledWith(
-        'SELECT id, address, is_active FROM wallets WHERE address = $1',
+        'SELECT id, address, is_active, role FROM wallets WHERE address = $1',
         [address]
       );
       expect(res.status).toHaveBeenCalledWith(401);
@@ -138,11 +138,11 @@ describe('Authentication & JWT Session Management', () => {
       req.headers.authorization = `Bearer ${token}`;
 
       pool.query.mockResolvedValueOnce({
-        rows: [{ id: 'wallet-uuid', address, is_active: true }]
+        rows: [{ id: 'wallet-uuid', address, is_active: true, role: 'buyer' }]
       });
 
       await authMiddleware(req, res, next);
-      expect(req.user).toEqual({ address, id: 'wallet-uuid' });
+      expect(req.user).toEqual({ address, id: 'wallet-uuid', role: 'buyer' });
       expect(next).toHaveBeenCalled();
     });
   });

@@ -79,6 +79,18 @@ describe('Home — no wallet', () => {
     fireEvent.click(screen.getByText('Unlock saved wallet'));
     expect(useXRPL().loadExistingWallet).toHaveBeenCalled();
   });
+
+  test('buy button calls createBurnerWallet and opens AddFunds', async () => {
+    useXRPL.mockReturnValue({
+      ...baseHook,
+      createBurnerWallet: jest.fn().mockResolvedValue({})
+    });
+    renderHome();
+    await act(async () => {
+      fireEvent.click(screen.getByText('Buy XRP — no wallet needed'));
+    });
+    expect(useXRPL().createBurnerWallet).toHaveBeenCalled();
+  });
 });
 
 describe('Home — with wallet', () => {
@@ -196,5 +208,16 @@ describe('Home — with wallet', () => {
     await waitFor(() => expect(screen.getByText('Add funds')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Cancel'));
     await waitFor(() => expect(screen.queryByText('Add funds')).not.toBeInTheDocument());
+  });
+
+  test('shows temporary guest warning banner for burner sessions', () => {
+    useXRPL.mockReturnValue({
+      ...baseHook,
+      wallet: { address: ADDR },
+      balance: '42',
+      sessionType: 'buyer'
+    });
+    renderHome();
+    expect(screen.getByText(/Temporary guest wallet/)).toBeInTheDocument();
   });
 });

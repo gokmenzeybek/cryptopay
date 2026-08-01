@@ -56,7 +56,7 @@ describe('Database DAL Modules', () => {
 
         expect(result).toEqual(mockWallets);
         expectQuery(
-          'SELECT id, address, public_key, is_active, created_at, updated_at, last_activity FROM wallets ORDER BY created_at DESC'
+          'SELECT id, address, public_key, is_active, role, created_at, updated_at, last_activity FROM wallets ORDER BY created_at DESC'
         );
       });
 
@@ -79,8 +79,8 @@ describe('Database DAL Modules', () => {
 
         expect(result).toEqual(row);
         expectQuery(
-          'INSERT INTO wallets (address, public_key, is_active) VALUES ($1, $2, $3) ON CONFLICT (address) DO UPDATE SET public_key = EXCLUDED.public_key, is_active = EXCLUDED.is_active, updated_at = NOW() RETURNING id, address, public_key, is_active, created_at, updated_at, last_activity',
-          [ADDR1, 'k1', true]
+          'INSERT INTO wallets (address, public_key, is_active, role) VALUES ($1, $2, $3, $4) ON CONFLICT (address) DO UPDATE SET public_key = EXCLUDED.public_key, is_active = EXCLUDED.is_active, role = EXCLUDED.role, updated_at = NOW() RETURNING id, address, public_key, is_active, role, created_at, updated_at, last_activity',
+          [ADDR1, 'k1', true, 'buyer']
         );
       });
     });
@@ -92,7 +92,7 @@ describe('Database DAL Modules', () => {
         await WalletsDAL.updateActivity(ADDR1);
 
         expectQuery(
-          'UPDATE wallets SET last_activity = NOW(), updated_at = NOW() WHERE address = $1 RETURNING id, address, public_key, is_active, created_at, updated_at, last_activity',
+          'UPDATE wallets SET last_activity = NOW(), updated_at = NOW() WHERE address = $1 RETURNING id, address, public_key, is_active, role, created_at, updated_at, last_activity',
           [ADDR1]
         );
       });

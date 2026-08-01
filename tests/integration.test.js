@@ -31,10 +31,11 @@ describe('CryptoPay Integration Tests', () => {
     server = app.listen(0);
 
     // Upsert test wallet to wallets table so authorization middleware passes
+    // Set role to 'seller' so it can create sell orders in general integration tests.
     await pool.query(
-      `INSERT INTO wallets (address, public_key, is_active)
-       VALUES ($1, $2, true)
-       ON CONFLICT (address) DO UPDATE SET is_active = true`,
+      `INSERT INTO wallets (address, public_key, is_active, role)
+       VALUES ($1, $2, true, 'seller')
+       ON CONFLICT (address) DO UPDATE SET is_active = true, role = 'seller'`,
       [testAddress, testPublicKey]
     );
 
@@ -355,6 +356,34 @@ describe('CryptoPay Integration Tests', () => {
       
       expect(response.body.success).toBe(false);
       expect(response.body.error).toBe('Validation failed');
+    });
+
+    test('POST /api/p2p/create-order should reject sell orders from users with buyer role', async () => {
+      // Temporarily change role to 'buyer'
+      await pool.query("UPDATE wallets SET role = 'buyer' WHERE address = $1", [testAddress]);
+      
+      try {
+        const orderData = {
+          type: 'sell',
+          tryAmount: 100,
+          xrpAmount: 10,
+          rate: 10,
+          xrplAddress: testAddress,
+          paymentMethods: ['bank_transfer']
+        };
+
+        const response = await request(app)
+          .post('/api/p2p/create-order')
+          .set('Authorization', 'Bearer ' + token)
+          .send(orderData)
+          .expect(403);
+        
+        expect(response.body.success).toBe(false);
+        expect(response.body.message).toMatch(/Only verified sellers/);
+      } finally {
+        // Restore role to 'seller' for other tests
+        await pool.query("UPDATE wallets SET role = 'seller' WHERE address = $1", [testAddress]);
+      }
     });
   });
   

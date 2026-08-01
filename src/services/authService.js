@@ -136,6 +136,21 @@ class AuthService {
   }
 
   /**
+   * Set the JWT directly (e.g. the short-lived guest token issued by
+   * POST /api/burner/wallets, which skips the challenge/verify round-trip).
+   */
+  setToken(token) {
+    this.token = token || null;
+    try {
+      if (token) {
+        window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+      } else {
+        window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+      }
+    } catch (_) { /* storage unavailable — keep in-memory only */ }
+  }
+
+  /**
    * Clear the session.
    */
   logout() {

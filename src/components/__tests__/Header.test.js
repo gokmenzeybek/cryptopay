@@ -5,6 +5,11 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Header from '../Header';
+import { useXRPL } from '../../hooks/useXRPL';
+
+jest.mock('../../hooks/useXRPL', () => ({
+  useXRPL: jest.fn().mockReturnValue({ sessionType: 'seller' })
+}));
 
 const renderAt = (path) =>
   render(
@@ -26,7 +31,14 @@ describe('Header', () => {
   });
 
   test('wordmark links to /', () => {
+    useXRPL.mockReturnValue({ sessionType: 'seller' });
     renderAt('/settings');
     expect(screen.getByText('cryptopay').closest('a')).toHaveAttribute('href', '/');
+  });
+
+  test('renders guest badge when session is buyer', () => {
+    useXRPL.mockReturnValue({ sessionType: 'buyer' });
+    renderAt('/');
+    expect(screen.getByText('guest')).toBeInTheDocument();
   });
 });

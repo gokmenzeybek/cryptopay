@@ -225,7 +225,7 @@ const ValidationText = styled.div`
 `;
 
 const OrderForm = ({ currentRate, onOrderCreated, userAddress }) => {
-  const { apiBaseUrl } = useXRPL();
+  const { apiBaseUrl, sessionType } = useXRPL();
   const [formData, setFormData] = useState({
     type: 'buy',
     tryAmount: '100',
@@ -260,7 +260,7 @@ const OrderForm = ({ currentRate, onOrderCreated, userAddress }) => {
 
   const orderTypes = [
     { value: 'buy', label: 'Buy XRP with TRY' },
-    { value: 'sell', label: 'Sell XRP for TRY' }
+    ...(sessionType !== 'buyer' ? [{ value: 'sell', label: 'Sell XRP for TRY' }] : [])
   ];
 
   const timeLimits = [

@@ -115,7 +115,7 @@ const SuccessMessage = styled.div`
 `;
 
 const P2PExchange = () => {
-  const { apiBaseUrl } = useXRPL();
+  const { apiBaseUrl, wallet } = useXRPL();
   const [activeTab, setActiveTab] = useState('market');
   const [p2pStats, setP2pStats] = useState({
     total_orders: 0,
@@ -135,7 +135,13 @@ const P2PExchange = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-  const [userAddress, setUserAddress] = useState('');
+  const [userAddress, setUserAddress] = useState(wallet?.address || '');
+
+  useEffect(() => {
+    if (wallet?.address) {
+      setUserAddress(wallet.address);
+    }
+  }, [wallet]);
 
   const tabs = [
     { id: 'market', label: 'Market' },

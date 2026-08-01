@@ -45,7 +45,7 @@ const authMiddleware = async (req, res, next) => {
 
     // Query database to ensure wallet exists and is active
     const result = await pool.query(
-      'SELECT id, address, is_active FROM wallets WHERE address = $1',
+      'SELECT id, address, is_active, role FROM wallets WHERE address = $1',
       [decoded.address]
     );
 
@@ -69,7 +69,8 @@ const authMiddleware = async (req, res, next) => {
     // Attach user info to request
     req.user = {
       address: wallet.address,
-      id: wallet.id
+      id: wallet.id,
+      role: wallet.role || 'buyer'
     };
 
     next();

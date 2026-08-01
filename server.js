@@ -12,6 +12,7 @@ const path = require('path');
 // Import services
 const tryRateScraperService = require('./services/tryRateScraperService');
 const p2pMatchingService = require('./services/p2pMatchingService');
+const burnerWalletService = require('./services/burnerWalletService');
 const { initWebSocketServer, broadcastOrderUpdate } = require('./services/websocketService');
 const { createRateLimiter } = require('./middleware/rateLimit');
 
@@ -152,6 +153,19 @@ app.post('/api/p2p/create-order', createRateLimiter('payment-intent'), async (re
             });
         }
 
+        // Two-tier users: only verified sellers may post sell orders (mirror of
+        // the production gating; dev server has no JWT so we check the DB row).
+        if (type === p2pMatchingService.ORDER_TYPE.SELL) {
+            const sellerWallet = await WalletsDAL.getByAddress(address);
+            if (!sellerWallet || sellerWallet.role !== 'seller') {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Forbidden',
+                    message: 'Only verified sellers can create sell orders'
+                });
+            }
+        }
+
         // Create P2P order
         const order = p2pMatchingService.createP2POrder({
             type,
@@ -209,6 +223,91 @@ app.post('/api/p2p/create-order', createRateLimiter('payment-intent'), async (re
             error: 'Failed to create P2P order',
             message: error.message
         });
+    }
+});
+
+// ========================================================================
+// BURNER WALLET ENDPOINTS (two-tier users) — mirror of production
+// ========================================================================
+
+// Create a fresh burner wallet for a guest buyer (platform sponsors the base
+// reserve; 0 spendable XRP; seed returned once, never persisted).
+app.post('/api/burner/wallets', createRateLimiter('payment-intent'), async (req, res) => {
+    try {
+        const burner = await burnerWalletService.createBurner();
+        res.status(201).json({
+            success: true,
+            address: burner.address,
+            seed: burner.seed,
+            reserveXrp: burner.reserveXrp,
+            token: burner.token
+        });
+    } catch (error) {
+        console.error('Error creating burner wallet:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to create burner wallet',
+            message: error.message
+        });
+    }
+});
+
+// Dev-server moderator guard (mirror of production moderatorMiddleware):
+// when MODERATOR_API_KEY is unset the endpoints refuse all requests.
+const devModeratorGuard = (req, res, next) => {
+    const requiredKey = process.env.MODERATOR_API_KEY;
+    if (!requiredKey) {
+        return res.status(503).json({
+            success: false,
+            error: 'Service Unavailable',
+            message: 'Moderator API is not configured on this server'
+        });
+    }
+    if (req.headers['x-moderator-key'] !== requiredKey) {
+        return res.status(401).json({
+            success: false,
+            error: 'Unauthorized',
+            message: 'Invalid or missing moderator key'
+        });
+    }
+    next();
+};
+
+// List wallets with their role (sellers first)
+app.get('/api/moderator/sellers', devModeratorGuard, async (req, res) => {
+    try {
+        const all = await WalletsDAL.getAll();
+        const sellers = all.filter((w) => w.role === 'seller');
+        res.json({ success: true, count: all.length, sellers, wallets: all });
+    } catch (error) {
+        console.error('Error listing seller wallets:', error);
+        res.status(500).json({ success: false, error: 'Failed to list wallets' });
+    }
+});
+
+// Promote/demote a verified seller
+app.post('/api/moderator/sellers', devModeratorGuard, async (req, res) => {
+    try {
+        const { address, role } = req.body;
+        if (!address || !['seller', 'buyer'].includes(role)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Bad Request',
+                message: 'address and role (seller|buyer) are required'
+            });
+        }
+        const updated = await WalletsDAL.setRole(address, role);
+        if (!updated) {
+            return res.status(404).json({
+                success: false,
+                error: 'Wallet not found',
+                message: 'No wallet with that address is registered yet'
+            });
+        }
+        res.json({ success: true, message: `Wallet role set to ${role}`, wallet: updated });
+    } catch (error) {
+        console.error('Error setting seller role:', error);
+        res.status(500).json({ success: false, error: 'Failed to set role' });
     }
 });
 
@@ -1319,6 +1418,10 @@ async function startServer() {
         if (process.env.NODE_ENV !== 'test') {
             initWebSocketServer(server);
         }
+
+        // Burner-wallet sweeper (two-tier users): destroys guest buyer wallets
+        // whose session is over via AccountDelete (no-op without SPONSOR_SEED).
+        burnerWalletService.startSweeper();
     } catch (error) {
         console.error('❌ Failed to start server:', error.message);
         process.exit(1);

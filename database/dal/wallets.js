@@ -5,13 +5,15 @@
 
 const { pool } = require('../connection');
 
+const COLUMNS = `id, address, public_key, is_active, role, created_at, updated_at, last_activity`;
+
 class WalletsDAL {
   /**
    * Get all wallets
    */
   static async getAll() {
     const query = `
-      SELECT id, address, public_key, is_active, created_at, updated_at, last_activity
+      SELECT ${COLUMNS}
       FROM wallets
       ORDER BY created_at DESC
     `;
@@ -24,7 +26,7 @@ class WalletsDAL {
    */
   static async getByAddress(address) {
     const query = `
-      SELECT id, address, public_key, is_active, created_at, updated_at, last_activity
+      SELECT ${COLUMNS}
       FROM wallets
       WHERE address = $1
     `;
@@ -36,19 +38,20 @@ class WalletsDAL {
    * Create a new wallet
    */
   static async create(walletData) {
-    const { address, public_key, is_active = true } = walletData;
+    const { address, public_key, is_active = true, role = 'buyer' } = walletData;
     
     const query = `
-      INSERT INTO wallets (address, public_key, is_active)
-      VALUES ($1, $2, $3)
+      INSERT INTO wallets (address, public_key, is_active, role)
+      VALUES ($1, $2, $3, $4)
       ON CONFLICT (address) DO UPDATE SET
         public_key = EXCLUDED.public_key,
         is_active = EXCLUDED.is_active,
+        role = EXCLUDED.role,
         updated_at = NOW()
-      RETURNING id, address, public_key, is_active, created_at, updated_at, last_activity
+      RETURNING ${COLUMNS}
     `;
     
-    const result = await pool.query(query, [address, public_key, is_active]);
+    const result = await pool.query(query, [address, public_key, is_active, role]);
     return result.rows[0];
   }
 
@@ -60,7 +63,7 @@ class WalletsDAL {
       UPDATE wallets 
       SET last_activity = NOW(), updated_at = NOW()
       WHERE address = $1
-      RETURNING id, address, public_key, is_active, created_at, updated_at, last_activity
+      RETURNING ${COLUMNS}
     `;
     
     const result = await pool.query(query, [address]);
@@ -75,11 +78,43 @@ class WalletsDAL {
       UPDATE wallets 
       SET is_active = $2, updated_at = NOW()
       WHERE address = $1
-      RETURNING id, address, public_key, is_active, created_at, updated_at, last_activity
+      RETURNING ${COLUMNS}
     `;
     
     const result = await pool.query(query, [address, is_active]);
     return result.rows[0] || null;
+  }
+
+  /**
+   * Set a wallet's role ('buyer' | 'seller'). Used by moderator endpoints to
+   * promote verified sellers / demote them back to buyers.
+   */
+  static async setRole(address, role) {
+    if (!['buyer', 'seller'].includes(role)) {
+      throw new Error('Role must be either "buyer" or "seller"');
+    }
+    const query = `
+      UPDATE wallets
+      SET role = $2, updated_at = NOW()
+      WHERE address = $1
+      RETURNING ${COLUMNS}
+    `;
+    const result = await pool.query(query, [address, role]);
+    return result.rows[0] || null;
+  }
+
+  /**
+   * Get wallets by role ('buyer' | 'seller')
+   */
+  static async getByRole(role) {
+    const query = `
+      SELECT ${COLUMNS}
+      FROM wallets
+      WHERE role = $1
+      ORDER BY created_at DESC
+    `;
+    const result = await pool.query(query, [role]);
+    return result.rows;
   }
 
   /**
@@ -122,7 +157,7 @@ class WalletsDAL {
       UPDATE wallets 
       SET is_active = false, updated_at = NOW()
       WHERE address = $1
-      RETURNING id, address, public_key, is_active, created_at, updated_at, last_activity
+      RETURNING ${COLUMNS}
     `;
     
     const result = await pool.query(query, [address]);

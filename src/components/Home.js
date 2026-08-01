@@ -162,10 +162,21 @@ const SetupButton = styled.button`
 `;
 
 const Home = () => {
-  const { wallet, balance, isConnected, apiBaseUrl, createWallet, loadExistingWallet, loading } = useXRPL();
+  const {
+    wallet,
+    balance,
+    isConnected,
+    apiBaseUrl,
+    createWallet,
+    createBurnerWallet,
+    loadExistingWallet,
+    sessionType,
+    loading
+  } = useXRPL();
   const navigate = useNavigate();
   const [rate, setRate] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [creatingBurner, setCreatingBurner] = useState(false);
   const [showAddFunds, setShowAddFunds] = useState(false);
 
   useEffect(() => {
@@ -180,6 +191,15 @@ const Home = () => {
     setCreating(true);
     try { await createWallet(); } catch (_) { /* toasted in hook */ }
     setCreating(false);
+  };
+
+  const handleBuyNoWallet = async () => {
+    setCreatingBurner(true);
+    try {
+      await createBurnerWallet();
+      setShowAddFunds(true);
+    } catch (_) { /* toasted in hook */ }
+    setCreatingBurner(false);
   };
 
   const numericBalance = parseFloat(balance) || 0;
@@ -198,12 +218,30 @@ const Home = () => {
             One tap creates your wallet on this device. No email, no name, no signup —
             your keys never leave your phone.
           </SetupText>
-          <SetupButton $primary onClick={handleCreate} disabled={!isConnected || creating || loading}>
-            {creating ? 'Creating…' : 'Create my wallet'}
+          <SetupButton
+            $primary
+            onClick={handleBuyNoWallet}
+            disabled={!isConnected || creatingBurner || loading}
+            style={{ width: '100%', marginBottom: '12px', marginLeft: 0, marginRight: 0 }}
+          >
+            {creatingBurner ? 'Setting up…' : 'Buy XRP — no wallet needed'}
           </SetupButton>
-          <SetupButton onClick={loadExistingWallet} disabled={!isConnected || loading}>
-            Unlock saved wallet
-          </SetupButton>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+            <SetupButton
+              onClick={handleCreate}
+              disabled={!isConnected || creating || loading}
+              style={{ fontSize: '13px', padding: '0 12px' }}
+            >
+              Create my wallet
+            </SetupButton>
+            <SetupButton
+              onClick={loadExistingWallet}
+              disabled={!isConnected || loading}
+              style={{ fontSize: '13px', padding: '0 12px' }}
+            >
+              Unlock saved wallet
+            </SetupButton>
+          </div>
         </SetupCard>
       </Wrap>
     );
@@ -222,6 +260,22 @@ const Home = () => {
         )}
         <AddFundsButton onClick={() => setShowAddFunds(true)}>+ Add funds</AddFundsButton>
       </BalanceCard>
+
+      {sessionType === 'buyer' && (
+        <div style={{
+          background: theme.color.dangerWash,
+          color: theme.color.danger,
+          borderRadius: theme.radius.input,
+          padding: '12px 16px',
+          fontSize: '13px',
+          lineHeight: '1.4',
+          marginTop: '16px',
+          fontWeight: '500',
+          textAlign: 'center'
+        }}>
+          ⚠️ Temporary guest wallet. It will be destroyed after this session. Please withdraw your XRP!
+        </div>
+      )}
 
       <ActionRow>
         <ActionTile $variant="send" onClick={() => navigate('/pay')}>
