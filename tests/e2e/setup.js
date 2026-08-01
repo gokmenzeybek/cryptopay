@@ -19,8 +19,6 @@ process.env.RATE_LIMIT_EXCHANGE_RATES = '100000';
 process.env.PAPARA_WEBHOOK_SECRET = 'papara_webhook_secret';
 // Deterministic JWT secret for auth challenge/verify flows.
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'e2e_jwt_secret';
-// Moderator endpoints fail closed (503) without a key; give the suite one.
-process.env.MODERATOR_API_KEY = 'e2e_moderator_key';
 
 // 2. Capture HTTP server instance to be able to close it and mount the real WebSocket server
 let testServer;

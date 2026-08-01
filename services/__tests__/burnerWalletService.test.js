@@ -223,9 +223,11 @@ describe('BurnerWalletService', () => {
     });
 
     it('throws if SPONSOR_ADDRESS does not match derived address', async () => {
+      const mismatchedSeed = generateSeed();
+      const mismatchedAddress = deriveAddress(deriveKeypair(mismatchedSeed).publicKey);
       SystemSettingsDAL.getAll.mockResolvedValue({
         sponsor_seed: mockSponsorSeed,
-        sponsor_address: 'rMismatchAddressPlaceHolder12345',
+        sponsor_address: mismatchedAddress,
         burner_sweep_interval_ms: '60000',
         burner_destroy_delay_ms: '960000'
       });

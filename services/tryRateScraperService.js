@@ -279,6 +279,40 @@ async function getCurrentRate(forceRefresh = false, p2pOrders = []) {
   try {
     const rateData = await module.exports.fetchAllRates(p2pOrders);
 
+    // Phase 8 Security: Circuit Breaker
+    // Prevent sudden huge price swings from draining P2P orders if an oracle glitches.
+    if (rateCache.rate) {
+      const SystemSettingsDAL = require('../database/dal/systemSettings');
+      let circuitBreakerPct = 10.0; // default 10%
+      try {
+        const settings = await SystemSettingsDAL.getAll();
+        if (settings.circuit_breaker_percentage) {
+          circuitBreakerPct = parseFloat(settings.circuit_breaker_percentage);
+        }
+      } catch (e) {
+        logger.warn('Failed to read circuit_breaker_percentage, using default 10%');
+      }
+
+      const diff = Math.abs(rateData.rate - rateCache.rate);
+      const diffPct = (diff / rateCache.rate) * 100;
+
+      if (diffPct > circuitBreakerPct) {
+        logger.error(`CIRCUIT BREAKER TRIPPED! Rate swung by ${diffPct.toFixed(2)}% (from ${rateCache.rate} to ${rateData.rate}). Halting updates.`);
+        // Return stale cache with a warning instead of the spiked rate.
+        // This effectively halts new rate consumption until the market normalizes
+        // or a moderator updates the circuit_breaker_percentage.
+        return {
+          rate: rateCache.rate,
+          sources: rateCache.sources,
+          averageChange24h: rateCache.averageChange24h,
+          cached: true,
+          stale: true,
+          lastUpdated: rateCache.lastUpdated,
+          warning: `Circuit breaker active: price swung by ${diffPct.toFixed(2)}%. Trading temporarily uses last known safe rate.`
+        };
+      }
+    }
+
     rateCache = {
       rate: rateData.rate,
       sources: rateData.sources,

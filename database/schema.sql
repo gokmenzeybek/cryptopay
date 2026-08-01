@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS wallets (
     address VARCHAR(34) UNIQUE NOT NULL,
     public_key TEXT NOT NULL,
     is_active BOOLEAN DEFAULT true,
-    role VARCHAR(20) DEFAULT 'buyer' CHECK (role IN ('buyer', 'seller')),
+    role VARCHAR(20) DEFAULT 'buyer' CHECK (role IN ('buyer', 'seller', 'admin')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_activity TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -228,7 +228,8 @@ INSERT INTO system_settings (key, value, description) VALUES
 ('sponsor_seed', '', 'Seed of the platform account that sponsors burner reserves'),
 ('sponsor_address', '', 'Address of the sponsor account'),
 ('burner_sweep_interval_ms', '60000', 'Burner wallet sweeper interval in ms'),
-('burner_destroy_delay_ms', '960000', 'Burner wallet destroy age delay in ms')
+('burner_destroy_delay_ms', '960000', 'Burner wallet destroy age delay in ms'),
+('circuit_breaker_percentage', '10.0', 'Halt trading if XRP/TRY rate changes by this percentage in 5 minutes')
 ON CONFLICT (key) DO NOTHING;
 
 -- ==============================================================================

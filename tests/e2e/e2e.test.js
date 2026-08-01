@@ -62,8 +62,14 @@ async function seedPaparaPayment(orderId, amountTry) {
   return referenceId;
 }
 
-// Moderator endpoints require the x-moderator-key header (fail-closed guard).
-const MOD_HEADERS = { headers: { 'x-moderator-key': 'e2e_moderator_key' } };
+// Moderator endpoints are protected by JWT auth + admin role (adminMiddleware).
+// Each call registers a fresh admin wallet since the DB is cleaned per-test.
+async function getModHeaders() {
+  const adminWallet = xrpl.Wallet.generate();
+  const adminToken = await getAuthToken(adminWallet);
+  await pool.query("UPDATE wallets SET role = 'admin' WHERE address = $1", [adminWallet.address]);
+  return { headers: { Authorization: `Bearer ${adminToken}` } };
+}
 
 // ---------------------------------------------------------------------------
 // XRPL testnet helpers: the production server verifies every Payment and
@@ -672,7 +678,7 @@ describe('TRY-XRP P2P Exchange E2E Test Suite', () => {
       const res = await api.post('/api/moderator/resolve-dispute', {
         orderId: oA.data.order.id,
         resolution: 'refund'
-      }, MOD_HEADERS);
+      }, await getModHeaders());
 
       expect(res.status).toBe(200);
       expect(res.data.success).toBe(true);
@@ -766,7 +772,7 @@ describe('TRY-XRP P2P Exchange E2E Test Suite', () => {
     });
 
     test('F5.4: Moderator can list and inspect disputed orders', async () => {
-      const res = await api.get('/api/moderator/disputes', MOD_HEADERS);
+      const res = await api.get('/api/moderator/disputes', await getModHeaders());
       expect(res.status).toBe(200);
       expect(res.data.success).toBe(true);
       expect(Array.isArray(res.data.disputes)).toBe(true);
@@ -794,7 +800,7 @@ describe('TRY-XRP P2P Exchange E2E Test Suite', () => {
       const resolveRes = await api.post('/api/moderator/resolve-dispute', {
         orderId: oA.data.order.id,
         resolution: 'refund'
-      }, MOD_HEADERS);
+      }, await getModHeaders());
 
       expect(resolveRes.status).toBe(200);
       expect(resolveRes.data.success).toBe(true);
@@ -1187,7 +1193,7 @@ describe('TRY-XRP P2P Exchange E2E Test Suite', () => {
       const res = await api.post('/api/moderator/resolve-dispute', {
         orderId: oA.data.order.id,
         resolution: 'release'
-      }, MOD_HEADERS);
+      }, await getModHeaders());
       expect(res.status).toBe(400);
     });
 
@@ -1360,7 +1366,7 @@ describe('TRY-XRP P2P Exchange E2E Test Suite', () => {
       expect(payRes.status).toBe(400);
 
       // Verify moderator is notified
-      const dispRes = await api.get('/api/moderator/disputes', MOD_HEADERS);
+      const dispRes = await api.get('/api/moderator/disputes', await getModHeaders());
       const disputes = dispRes.data.disputes || [];
       expect(disputes.some(d => d.order_id === oA.data.order.id)).toBe(true);
     });
@@ -1399,7 +1405,7 @@ describe('TRY-XRP P2P Exchange E2E Test Suite', () => {
       await api.post('/api/moderator/resolve-dispute', {
         orderId: oA.data.order.id,
         resolution: 'release'
-      }, MOD_HEADERS);
+      }, await getModHeaders());
 
       const packet = await statusPromise;
       expect(packet.status).toBe('completed');
@@ -1499,7 +1505,7 @@ describe('TRY-XRP P2P Exchange E2E Test Suite', () => {
 
       await api.post('/api/p2p/dispute', { orderId: oA.data.order.id, reason: 'Proof attached' }, { headers: { Authorization: `Bearer ${tokenA}` } });
 
-      await api.post('/api/moderator/resolve-dispute', { orderId: oA.data.order.id, resolution: 'release' }, MOD_HEADERS);
+      await api.post('/api/moderator/resolve-dispute', { orderId: oA.data.order.id, resolution: 'release' }, await getModHeaders());
 
       const dbOrder = await pool.query('SELECT status FROM p2p_orders WHERE order_id = $1', [oA.data.order.id]);
       expect(dbOrder.rows[0].status).toBe('completed');
@@ -1521,7 +1527,7 @@ describe('TRY-XRP P2P Exchange E2E Test Suite', () => {
 
       await api.post('/api/p2p/dispute', { orderId: oA.data.order.id, reason: 'Proof attached' }, { headers: { Authorization: `Bearer ${tokenA}` } });
 
-      await api.post('/api/moderator/resolve-dispute', { orderId: oA.data.order.id, resolution: 'refund' }, MOD_HEADERS);
+      await api.post('/api/moderator/resolve-dispute', { orderId: oA.data.order.id, resolution: 'refund' }, await getModHeaders());
 
       const dbOrder = await pool.query('SELECT status FROM p2p_orders WHERE order_id = $1', [oA.data.order.id]);
       expect(dbOrder.rows[0].status).toBe('cancelled');

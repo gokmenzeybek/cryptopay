@@ -9,6 +9,11 @@ const tryRateScraperService = require('../tryRateScraperService');
 jest.mock('axios');
 const mockedAxios = axios;
 
+// Mock SystemSettingsDAL so the circuit breaker reads a deterministic threshold
+jest.mock('../../database/dal/systemSettings', () => ({
+  getAll: jest.fn().mockResolvedValue({ circuit_breaker_percentage: '10.0' })
+}));
+
 describe('TRY Rate Scraper Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -312,6 +317,47 @@ describe('TRY Rate Scraper Service', () => {
 
       const result = await tryRateScraperService.getCurrentRate(true);
       expect(result.cached).toBe(false);
+    });
+
+    it('trips the circuit breaker when the fresh rate swings beyond the threshold', async () => {
+      jest.resetModules();
+      try {
+        const freshService = require('../tryRateScraperService');
+        jest.spyOn(freshService, 'fetchAllRates')
+          .mockResolvedValueOnce({ rate: 12.5, sources: [{ source: 'CoinGecko', rate: 12.5 }], averageChange24h: 0, timestamp: new Date().toISOString() })
+          .mockResolvedValueOnce({ rate: 16.0, sources: [{ source: 'CoinGecko', rate: 16.0 }], averageChange24h: 0, timestamp: new Date().toISOString() });
+
+        // Seed the cache with the base rate
+        const first = await freshService.getCurrentRate();
+        expect(first.rate).toBe(12.5);
+
+        // Force a refresh; +28% swing must be blocked by the circuit breaker
+        const second = await freshService.getCurrentRate(true);
+        expect(second.rate).toBe(12.5);
+        expect(second.stale).toBe(true);
+        expect(second.warning).toContain('Circuit breaker active');
+      } finally {
+        jest.resetModules();
+      }
+    });
+
+    it('keeps updating when the swing is within the circuit breaker threshold', async () => {
+      jest.resetModules();
+      try {
+        const freshService = require('../tryRateScraperService');
+        jest.spyOn(freshService, 'fetchAllRates')
+          .mockResolvedValueOnce({ rate: 12.5, sources: [{ source: 'CoinGecko', rate: 12.5 }], averageChange24h: 0, timestamp: new Date().toISOString() })
+          .mockResolvedValueOnce({ rate: 13.0, sources: [{ source: 'CoinGecko', rate: 13.0 }], averageChange24h: 0, timestamp: new Date().toISOString() });
+
+        const first = await freshService.getCurrentRate();
+        expect(first.rate).toBe(12.5);
+
+        const second = await freshService.getCurrentRate(true);
+        expect(second.rate).toBe(13.0);
+        expect(second.stale).not.toBe(true);
+      } finally {
+        jest.resetModules();
+      }
     });
   });
 

@@ -64,29 +64,16 @@ const authMiddleware = require('./middleware/auth');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
- * Moderator guard — fails CLOSED. When MODERATOR_API_KEY is not configured,
- * moderator endpoints are unavailable (503) rather than open. When it is
- * configured, the x-moderator-key header must match (timing-safe comparison).
+ * Admin guard (Phase 8 Security Upgrade)
+ * Replaces static MODERATOR_API_KEY with cryptographically secure JWT role checks.
+ * Must be used AFTER authMiddleware.
  */
-const moderatorMiddleware = (req, res, next) => {
-  const requiredKey = process.env.MODERATOR_API_KEY;
-  if (!requiredKey) {
-    return res.status(503).json({
+const adminMiddleware = (req, res, next) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({
       success: false,
-      error: 'Service Unavailable',
-      message: 'Moderator API is not configured on this server'
-    });
-  }
-  const provided = req.headers['x-moderator-key'];
-  const providedBuf = Buffer.from(typeof provided === 'string' ? provided : '');
-  const requiredBuf = Buffer.from(requiredKey);
-  const keysMatch = providedBuf.length === requiredBuf.length &&
-    crypto.timingSafeEqual(providedBuf, requiredBuf);
-  if (!keysMatch) {
-    return res.status(401).json({
-      success: false,
-      error: 'Unauthorized',
-      message: 'Invalid or missing moderator key'
+      error: 'Forbidden',
+      message: 'Admin access required'
     });
   }
   next();
@@ -1670,7 +1657,8 @@ app.post('/api/p2p/confirm-escrow-completion',
 
 // List disputed orders (moderator dashboard)
 app.get('/api/moderator/disputes',
-  moderatorMiddleware,
+  authMiddleware,
+  adminMiddleware,
   createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_READ) || 30),
   catchAsync(async (req, res) => {
     const disputes = await P2POrdersDAL.getDisputed();
@@ -1685,7 +1673,8 @@ app.get('/api/moderator/disputes',
 
 // Resolve a dispute: release escrow to buyer or refund seller
 app.post('/api/moderator/resolve-dispute',
-  moderatorMiddleware,
+  authMiddleware,
+  adminMiddleware,
   createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_CONVERSION) || 20),
   [
     body('orderId').notEmpty().withMessage('Order ID is required'),
@@ -1790,7 +1779,8 @@ app.post('/api/moderator/resolve-dispute',
 
 // List wallets with their role (sellers first) for the moderator dashboard
 app.get('/api/moderator/sellers',
-  moderatorMiddleware,
+  authMiddleware,
+  adminMiddleware,
   createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_READ) || 30),
   catchAsync(async (req, res) => {
     const all = await WalletsDAL.getAll();
@@ -1807,7 +1797,8 @@ app.get('/api/moderator/sellers',
 
 // Promote/demote a verified seller: set wallets.role to 'seller' | 'buyer'
 app.post('/api/moderator/sellers',
-  moderatorMiddleware,
+  authMiddleware,
+  adminMiddleware,
   createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_CONVERSION) || 20),
   [
     validateXRPLAddress('address'),
@@ -2533,7 +2524,7 @@ handleSIGINT();
  * Outside production a loud warning is logged instead of exiting.
  */
 const validateEnvironment = () => {
-  const REQUIRED_SECRETS = ['JWT_SECRET', 'PAPARA_WEBHOOK_SECRET', 'MODERATOR_API_KEY', 'PAPARA_API_KEY'];
+  const REQUIRED_SECRETS = ['JWT_SECRET', 'PAPARA_WEBHOOK_SECRET', 'PAPARA_API_KEY'];
   // Accept either discrete POSTGRES_PASSWORD or a full DATABASE_URL (Supabase/Render).
   if (!process.env.DATABASE_URL) {
     REQUIRED_SECRETS.push('POSTGRES_PASSWORD');

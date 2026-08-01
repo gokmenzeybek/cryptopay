@@ -17,6 +17,7 @@
 
 const xrpl = require('xrpl');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { pool } = require('../database/connection');
 const { WalletsDAL, SystemSettingsDAL } = require('../database/dal');
 const logger = require('../utils/logger');
@@ -79,17 +80,30 @@ async function waitForValidation(client, txHash, { maxAttempts = 15, delayMs = 1
 
 class BurnerWalletService {
   constructor() {
-    // address -> { seed, expiresAt }  (never persisted, TTL'd)
+    // address -> { encryptedSeed, iv, authTag, expiresAt }  (never persisted, TTL'd)
     this.seeds = new Map();
     this.sweepTimer = null;
+    // Ephemeral master key for in-memory encryption (Phase 8 Security)
+    this._ramKey = crypto.randomBytes(32);
   }
 
   /**
-   * Register a burner seed in memory with a TTL. Expired entries are lazily
-   * evicted on read.
+   * Register a burner seed in memory with a TTL. Encrypted using AES-256-GCM
+   * to protect against RAM dumps.
    */
   _rememberSeed(address, seed) {
-    this.seeds.set(address, { seed, expiresAt: Date.now() + SEED_TTL_MS });
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', this._ramKey, iv);
+    let encryptedSeed = cipher.update(seed, 'utf8', 'hex');
+    encryptedSeed += cipher.final('hex');
+    const authTag = cipher.getAuthTag().toString('hex');
+
+    this.seeds.set(address, {
+      encryptedSeed,
+      iv: iv.toString('hex'),
+      authTag,
+      expiresAt: Date.now() + SEED_TTL_MS
+    });
   }
 
   /**
@@ -104,7 +118,18 @@ class BurnerWalletService {
       this.seeds.delete(address);
       return null;
     }
-    return entry.seed;
+
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', this._ramKey, Buffer.from(entry.iv, 'hex'));
+      decipher.setAuthTag(Buffer.from(entry.authTag, 'hex'));
+      let seed = decipher.update(entry.encryptedSeed, 'hex', 'utf8');
+      seed += decipher.final('utf8');
+      return seed;
+    } catch (err) {
+      logger.error('Failed to decrypt in-memory burner seed', { error: err.message, address });
+      this.seeds.delete(address);
+      return null;
+    }
   }
 
   _dropSeed(address) {
