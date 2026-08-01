@@ -2563,6 +2563,11 @@ const startServer = async () => {
 
     logger.info('Database connected successfully');
 
+    // Automatically run database migrations to ensure schema is up-to-date
+    logger.info('Running database migrations automatically on startup...');
+    const { runMigrations } = require('./database/migrate');
+    await runMigrations();
+
     // Start server. HTTPS is opt-in: set HTTPS_KEY + HTTPS_CERT (PEM file
     // paths, e.g. generated with mkcert — see docs/LOCAL_HTTPS_TESTING.md).
     // Needed for mobile camera access (getUserMedia requires a secure
