@@ -6,7 +6,7 @@ services:
     runtime: node
     plan: free
     region: oregon
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build && npm prune --omit=dev
     startCommand: node server.production.js
     healthCheckPath: /api/health
     envVars:
