@@ -147,7 +147,7 @@ const runMigrations = async () => {
     logger.info(`Migration finished. Public tables: ${result.rows[0].table_count}`);
   } catch (error) {
     logger.error('Migration failed', { error: error.message, stack: error.stack });
-    throw error;
+    process.exit(1);
   }
 };
 

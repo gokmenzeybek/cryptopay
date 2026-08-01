@@ -226,6 +226,20 @@ app.get('/api/health', catchAsync(async (req, res) => {
 }));
 
 // ==============================================================================
+// DEBUG ENDPOINT
+// ==============================================================================
+
+app.get('/api/run-migrations', async (req, res) => {
+  try {
+    const { runMigrations } = require('./database/migrate');
+    await runMigrations();
+    res.json({ success: true, message: 'Migrations ran successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message, stack: error.stack });
+  }
+});
+
+// ==============================================================================
 // RATE LIMITING
 // ==============================================================================
 
@@ -2565,8 +2579,13 @@ const startServer = async () => {
 
     // Automatically run database migrations to ensure schema is up-to-date
     logger.info('Running database migrations automatically on startup...');
-    const { runMigrations } = require('./database/migrate');
-    await runMigrations();
+    try {
+      const { runMigrations } = require('./database/migrate');
+      await runMigrations();
+      logger.info('Startup migrations completed');
+    } catch (migErr) {
+      logger.error('Startup migration failed. You can retry via /api/run-migrations', { error: migErr.message });
+    }
 
     // Start server. HTTPS is opt-in: set HTTPS_KEY + HTTPS_CERT (PEM file
     // paths, e.g. generated with mkcert — see docs/LOCAL_HTTPS_TESTING.md).
