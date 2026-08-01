@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif">
+  <rect x="0" y="0" width="390" height="844" rx="44" fill="#101014"/>
+  <rect x="6" y="6" width="378" height="832" rx="38" fill="#FAFAF7"/>
+
+  <text x="195" y="62" font-size="16" font-weight="600" text-anchor="middle" fill="#141414">Confirm</text>
+
+  <!-- hero amount -->
+  <text x="195" y="150" font-size="52" font-weight="700" text-anchor="middle" fill="#141414">25 XRP</text>
+  <text x="195" y="182" font-size="15" text-anchor="middle" fill="#6B6B66">≈ ₺1,050.00</text>
+
+  <!-- detail card -->
+  <rect x="24" y="220" width="342" height="236" rx="20" fill="#F0EFEA"/>
+  <text x="48" y="262" font-size="13" fill="#6B6B66">To</text>
+  <text x="342" y="262" font-size="13" font-weight="600" text-anchor="end" fill="#141414">rKai7…4Fx ⧉</text>
+  <line x1="48" y1="280" x2="342" y2="280" stroke="#D8D7D0"/>
+  <text x="48" y="312" font-size="13" fill="#6B6B66">Network fee</text>
+  <text x="342" y="312" font-size="13" text-anchor="end" fill="#141414">0.00001 XRP</text>
+  <line x1="48" y1="330" x2="342" y2="330" stroke="#D8D7D0"/>
+  <text x="48" y="362" font-size="13" fill="#6B6B66">Settlement</text>
+  <text x="342" y="362" font-size="13" text-anchor="end" fill="#141414">~4 seconds · XRP Ledger</text>
+  <line x1="48" y1="380" x2="342" y2="380" stroke="#D8D7D0"/>
+  <text x="48" y="412" font-size="13" fill="#6B6B66">Request</text>
+  <text x="342" y="412" font-size="13" text-anchor="end" fill="#141414">“for dinner 🍽”</text>
+
+  <!-- privacy note -->
+  <text x="195" y="496" font-size="12" text-anchor="middle" fill="#9C9C95">Signed on this device. Your keys never leave it.</text>
+
+  <!-- slide to confirm -->
+  <rect x="24" y="540" width="342" height="64" rx="32" fill="#141414"/>
+  <circle cx="58" cy="572" r="24" fill="#00D47E"/>
+  <text x="58" y="578" font-size="16" text-anchor="middle" fill="#06281A">→</text>
+  <text x="210" y="577" font-size="15" font-weight="600" text-anchor="middle" fill="#9C9C95">slide to send</text>
+
+  <!-- success state (inset) -->
+  <rect x="24" y="648" width="342" height="150" rx="20" fill="#E4F9EE"/>
+  <circle cx="195" cy="700" r="26" fill="#00D47E"/>
+  <text x="195" y="708" font-size="20" text-anchor="middle" fill="#06281A">✓</text>
+  <text x="195" y="748" font-size="15" font-weight="600" text-anchor="middle" fill="#141414">Sent in 3.8s</text>
+  <text x="195" y="772" font-size="12" text-anchor="middle" fill="#6B6B66">Technical details ⌄</text>
+</svg>

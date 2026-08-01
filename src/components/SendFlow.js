@@ -1,0 +1,337 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import styled from 'styled-components';
+import { Scanner } from '@yudiel/react-qr-scanner';
+import { useXRPL } from '../hooks/useXRPL';
+import ConfirmSheet from './ConfirmSheet';
+import theme from '../theme';
+
+/**
+ * SendFlow — the daily-driver send experience (M1, PRODUCT_PLAN §9.2 /
+ * UI_DESIGN §5.2). One vertical thought: who → how much → (note) → review.
+ * Lands pre-filled from payment links via ?to=&amount=&memo=&req=.
+ * Settlement is delegated to the shared ConfirmSheet.
+ */
+const Wrap = styled.div`
+  max-width: 420px;
+  margin: 0 auto;
+  font-family: ${theme.font.stack};
+`;
+
+const Label = styled.div`
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: ${theme.color.inkSoft};
+  margin: 32px 0 10px;
+`;
+
+const RecipientRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: ${theme.color.surface};
+  border-radius: ${theme.radius.input};
+  padding: 0 12px 0 18px;
+  height: 60px;
+`;
+
+const RecipientInput = styled.input`
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  font-family: ${theme.font.stack};
+  color: ${theme.color.ink};
+  outline: none;
+`;
+
+const ScanButton = styled.button`
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 8px;
+`;
+
+const ValidationLine = styled.div`
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  ${p => p.$ok
+    ? `background: ${theme.color.signalWash}; color: ${theme.color.signalDeep};`
+    : `background: ${theme.color.dangerWash}; color: ${theme.color.danger};`}
+`;
+
+const AmountRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+`;
+
+const AmountInput = styled.input`
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 56px;
+  font-weight: 700;
+  font-family: ${theme.font.stack};
+  color: ${theme.color.ink};
+  letter-spacing: -0.02em;
+  outline: none;
+  &::placeholder { color: ${theme.color.line}; }
+`;
+
+const UnitToggle = styled.div`
+  display: flex;
+  background: ${theme.color.surface};
+  border-radius: 20px;
+  padding: 4px;
+  flex-shrink: 0;
+`;
+
+const UnitOption = styled.button`
+  border: none;
+  border-radius: 16px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: ${theme.font.stack};
+  cursor: pointer;
+  ${p => p.$active
+    ? `background: ${theme.color.paper}; color: ${theme.color.ink};`
+    : `background: transparent; color: ${theme.color.inkSoft};`}
+`;
+
+const ConversionLine = styled.div`
+  font-size: 15px;
+  color: ${theme.color.inkSoft};
+  margin-top: 8px;
+`;
+
+const NoteToggle = styled.button`
+  width: 100%;
+  margin-top: 28px;
+  padding: 16px;
+  border: 1.5px dashed ${theme.color.line};
+  border-radius: ${theme.radius.input};
+  background: transparent;
+  color: ${theme.color.inkSoft};
+  font-size: 14px;
+  font-family: ${theme.font.stack};
+  cursor: pointer;
+  text-align: center;
+`;
+
+const NoteInput = styled.input`
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 12px;
+  height: 52px;
+  border: none;
+  border-radius: ${theme.radius.input};
+  background: ${theme.color.surface};
+  padding: 0 16px;
+  font-size: 15px;
+  font-family: ${theme.font.stack};
+  color: ${theme.color.ink};
+  outline: none;
+`;
+
+const ReviewButton = styled.button`
+  width: 100%;
+  height: 64px;
+  margin-top: 40px;
+  border: none;
+  border-radius: ${theme.radius.pill};
+  background: ${theme.color.ink};
+  color: ${theme.color.paper};
+  font-size: 17px;
+  font-weight: 600;
+  font-family: ${theme.font.stack};
+  cursor: pointer;
+  transition: opacity ${theme.motion.fast};
+  &:hover:not(:disabled) { opacity: 0.88; }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+`;
+
+const ScanSheet = styled.div`
+  margin-top: 12px;
+  border-radius: ${theme.radius.card};
+  overflow: hidden;
+  background: ${theme.color.ink};
+`;
+
+const isValidAddress = (addr) =>
+  Boolean(window.xrpl && addr && window.xrpl.isValidClassicAddress(addr));
+
+// Extract a recipient/amount from a scanned payload: payment link or bare address.
+const parsePayload = (text) => {
+  if (!text) return {};
+  try {
+    const url = new URL(text, window.location.origin);
+    if (url.searchParams.get('to')) {
+      return {
+        to: url.searchParams.get('to'),
+        amount: url.searchParams.get('amount') || undefined,
+        memo: url.searchParams.get('memo') || undefined,
+        req: url.searchParams.get('req') || undefined
+      };
+    }
+  } catch (_) { /* not a URL — fall through */ }
+  return { to: text.trim() };
+};
+
+const SendFlow = () => {
+  const { apiBaseUrl, wallet } = useXRPL();
+  const [searchParams] = useSearchParams();
+
+  const [recipient, setRecipient] = useState(searchParams.get('to') || '');
+  const [amount, setAmount] = useState(searchParams.get('amount') || '');
+  const [unit, setUnit] = useState('XRP');
+  const [memo, setMemo] = useState(searchParams.get('memo') || '');
+  const [showNote, setShowNote] = useState(Boolean(searchParams.get('memo')));
+  const [requestId] = useState(searchParams.get('req') || null);
+  const [requestNote, setRequestNote] = useState(null);
+  const [rate, setRate] = useState(null);
+  const [scanning, setScanning] = useState(searchParams.get('scan') === '1');
+  const [confirming, setConfirming] = useState(false);
+
+  // Live XRP/TRY rate for the fiat toggle (public endpoint)
+  useEffect(() => {
+    if (!apiBaseUrl) return;
+    fetch(`${apiBaseUrl}/api/p2p/rate`)
+      .then(r => r.json())
+      .then(data => { if (data.success && data.rate) setRate(parseFloat(data.rate)); })
+      .catch(() => { /* rate is a display convenience — absence is non-fatal */ });
+  }, [apiBaseUrl]);
+
+  // Resolve a payment-request link (M2): shows the requester's private note
+  // and status to the sender — in-app only, never on-chain.
+  useEffect(() => {
+    if (!apiBaseUrl || !requestId) return;
+    fetch(`${apiBaseUrl}/api/payment_requests/${requestId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.paymentRequest) {
+          const pr = data.paymentRequest;
+          if (pr.memo) setRequestNote(pr.memo);
+          if (pr.status === 'paid') {
+            // The link was already fulfilled — tell the sender before they pay twice.
+            setRequestNote(prev => (prev ? `${prev} (already paid)` : 'This request is already paid'));
+          }
+        }
+      })
+      .catch(() => {});
+  }, [apiBaseUrl, requestId]);
+
+  const addressValid = isValidAddress(recipient);
+  const showValidation = recipient.length > 0;
+
+  // Amount math in XRP (the settlement unit)
+  const amountXrp = unit === 'XRP'
+    ? parseFloat(amount) || 0
+    : (rate ? (parseFloat(amount) || 0) / rate : 0);
+  const conversionLine = rate && amount
+    ? unit === 'XRP'
+      ? `≈ ₺${((parseFloat(amount) || 0) * rate).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · 1 XRP = ₺${rate.toFixed(2)}`
+      : `≈ ${amountXrp.toFixed(6)} XRP · 1 XRP = ₺${rate.toFixed(2)}`
+    : null;
+
+  const canReview = addressValid && amountXrp > 0 && wallet;
+
+  const onScan = useCallback((results) => {
+    const text = results && results[0] && results[0].rawValue;
+    if (!text) return;
+    const parsed = parsePayload(text);
+    if (parsed.to) setRecipient(parsed.to);
+    if (parsed.amount) setAmount(parsed.amount);
+    if (parsed.memo) { setMemo(parsed.memo); setShowNote(true); }
+    setScanning(false);
+  }, []);
+
+  return (
+    <Wrap>
+      <Label>To</Label>
+      <RecipientRow>
+        <RecipientInput
+          value={recipient}
+          onChange={(e) => setRecipient(e.target.value.trim())}
+          placeholder="Recipient address (r…)"
+          autoComplete="off"
+        />
+        <ScanButton onClick={() => setScanning(v => !v)} aria-label="Scan a QR code">📷</ScanButton>
+      </RecipientRow>
+      {showValidation && (
+        <ValidationLine $ok={addressValid}>
+          {addressValid
+            ? '✓ Valid address — double-check the first and last characters'
+            : 'Not a valid XRPL address'}
+        </ValidationLine>
+      )}
+      {scanning && (
+        <ScanSheet>
+          <Scanner onScan={onScan} onError={(err) => console.error('Scan error:', err)} />
+        </ScanSheet>
+      )}
+
+      <Label>Amount</Label>
+      <AmountRow>
+        <AmountInput
+          type="number"
+          min="0"
+          step="any"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="0"
+        />
+        <UnitToggle>
+          <UnitOption $active={unit === 'XRP'} onClick={() => setUnit('XRP')}>XRP</UnitOption>
+          <UnitOption $active={unit === 'TRY'} onClick={() => setUnit('TRY')}>₺ TRY</UnitOption>
+        </UnitToggle>
+      </AmountRow>
+      {conversionLine && <ConversionLine>{conversionLine}</ConversionLine>}
+
+      {showNote ? (
+        <>
+          <NoteInput
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            placeholder="Note — public on the ledger"
+            maxLength={140}
+          />
+        </>
+      ) : (
+        <NoteToggle onClick={() => setShowNote(true)}>
+          + Add a note (public on the ledger)
+        </NoteToggle>
+      )}
+
+      {!wallet && (
+        <ValidationLine>Create or unlock your wallet before sending</ValidationLine>
+      )}
+
+      <ReviewButton disabled={!canReview} onClick={() => setConfirming(true)}>
+        Review payment
+      </ReviewButton>
+
+      {confirming && (
+        <ConfirmSheet
+          recipient={recipient}
+          amountXrp={amountXrp}
+          memo={memo || undefined}
+          requestId={requestId}
+          requestNote={requestNote}
+          tryRate={rate}
+          onClose={() => setConfirming(false)}
+        />
+      )}
+    </Wrap>
+  );
+};
+
+export default SendFlow;

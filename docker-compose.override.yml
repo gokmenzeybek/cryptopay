@@ -1,0 +1,34 @@
+# ==============================================================================
+# CryptoPay Docker Compose Override — DEVELOPMENT ONLY
+# ==============================================================================
+# This file is automatically loaded by docker-compose when present. It MUST NOT
+# be used in production: it enables debug logging and exposes the Node debugger.
+# For production deployments, run:
+#   docker compose -f docker-compose.yml up -d
+# or simply delete/rename this file.
+# ==============================================================================
+
+# Docker Compose override for development
+
+services:
+  cryptopay:
+    # Development overrides. NODE_ENV is intentionally NOT set here so that the
+    # base docker-compose.yml default (production) remains in effect; set it
+    # explicitly in your shell only when you truly need development mode.
+    environment:
+      - LOG_LEVEL=debug
+      - LOG_REQUESTS=true
+    volumes:
+      # Mount logs directory for persistence
+      - cryptopay-logs:/app/logs
+      # Note: Source code mounting requires package.json in container for development
+    # Override command for development (use production build for now)
+    # command: ["npm", "run", "dev"]  # Requires package.json in container
+    # Expose additional ports for debugging
+    ports:
+      - "5001:5001"
+      - "9229:9229"  # Node.js debug port
+    # Add development labels
+    labels:
+      - "com.cryptopay.environment=development"
+      - "com.cryptopay.debug=true"

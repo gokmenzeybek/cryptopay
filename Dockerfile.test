@@ -1,0 +1,116 @@
+# ==============================================================================
+# CryptoPay Test Dockerfile
+# Multi-stage build for running unit tests in Docker
+# ==============================================================================
+
+FROM node:18-alpine AS test-base
+
+# Install build dependencies
+RUN apk add --no-cache python3 make g++
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev dependencies for testing)
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# ==============================================================================
+# Test Runner Stage
+# ==============================================================================
+FROM test-base AS test-runner
+
+# Set environment for testing
+ENV NODE_ENV=test
+ENV CI=true
+
+# Create test user
+RUN addgroup -g 1001 -S testuser && \
+    adduser -S testuser -u 1001
+
+# Change ownership of app directory
+RUN chown -R testuser:testuser /app
+
+# Switch to test user
+USER testuser
+
+# Expose test port
+EXPOSE 5001
+
+# Health check for test environment
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD npm run test:ci || exit 1
+
+# Default command runs tests
+CMD ["npm", "run", "test:ci"]
+
+# ==============================================================================
+# Test Development Stage
+# ==============================================================================
+FROM test-base AS test-dev
+
+# Install additional development tools
+RUN apk add --no-cache git curl
+
+# Create test user
+RUN addgroup -g 1001 -S testuser && \
+    adduser -S testuser -u 1001
+
+# Change ownership of app directory
+RUN chown -R testuser:testuser /app
+
+# Switch to test user
+USER testuser
+
+# Expose ports
+EXPOSE 5001 3000
+
+# Command for development testing
+CMD ["npm", "run", "test:watch"]
+
+# ==============================================================================
+# Test Coverage Stage
+# ==============================================================================
+FROM test-base AS test-coverage
+
+# Create test user
+RUN addgroup -g 1001 -S testuser && \
+    adduser -S testuser -u 1001
+
+# Change ownership of app directory
+RUN chown -R testuser:testuser /app
+
+# Switch to test user
+USER testuser
+
+# Command for coverage testing
+CMD ["npm", "run", "test:coverage"]
+
+# ==============================================================================
+# Integration Test Stage
+# ==============================================================================
+FROM test-base AS test-integration
+
+# Install additional tools for integration testing
+RUN apk add --no-cache postgresql-client curl
+
+# Create test user
+RUN addgroup -g 1001 -S testuser && \
+    adduser -S testuser -u 1001
+
+# Change ownership of app directory
+RUN chown -R testuser:testuser /app
+
+# Switch to test user
+USER testuser
+
+# Expose ports
+EXPOSE 5001
+
+# Command for integration testing
+CMD ["npm", "run", "test:api"]

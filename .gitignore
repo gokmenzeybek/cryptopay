@@ -1,0 +1,29 @@
+# Secrets — never commit real environment files
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Generated artifacts
+logs/
+coverage/
+build/
+
+# Logs anywhere
+*.log
+
+# OS noise
+.DS_Store
+
+# Local TLS certs for HTTPS LAN testing (docs/LOCAL_HTTPS_TESTING.md)
+certs/
+
+# AI agent run artifacts (not source)
+.agents/
+.claude/
+
+# Backup / scratch
+*.backup
+server.js.backup

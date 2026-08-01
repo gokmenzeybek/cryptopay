@@ -1,0 +1,744 @@
+#!/usr/bin/env node
+/**
+ * CryptoPay Simple API Server (No Database Required)
+ * Works with localStorage fallback
+ */
+
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const path = require('path');
+
+// Import services
+const tryRateScraperService = require('./services/tryRateScraperService');
+const p2pMatchingService = require('./services/p2pMatchingService');
+const { createRateLimiter } = require('./middleware/rateLimit');
+
+// Load environment variables
+require('dotenv').config();
+
+const app = express();
+const PORT = 5001;
+
+// Middleware
+app.use(cors());
+app.use(bodyParser.json());
+app.use(express.static(path.join(__dirname, 'build')));
+
+
+// In-memory storage (for demo purposes)
+let wallets = [];
+let transactions = [];
+let paymentRequests = [];
+let p2pOrders = [];
+
+// Configuration
+
+// Routes
+
+// Root - API documentation
+app.get('/api', (req, res) => {
+    res.json({
+        message: 'CryptoPay P2P TRY-XRP Exchange API',
+        version: '3.0.0',
+        description: 'Peer-to-peer TRY to XRP conversion without third-party payment providers',
+        endpoints: {
+            wallets: '/api/wallets',
+            transactions: '/api/transactions',
+            payment_requests: '/api/payment_requests',
+            p2p_rate: '/api/p2p/rate',
+            p2p_create_order: '/api/p2p/create-order',
+            p2p_orders: '/api/p2p/orders',
+            p2p_my_orders: '/api/p2p/my-orders/:address',
+            p2p_match: '/api/p2p/match',
+            p2p_confirm_payment: '/api/p2p/confirm-payment',
+            p2p_confirm_xrp: '/api/p2p/confirm-xrp',
+            p2p_cancel: '/api/p2p/cancel',
+            p2p_dispute: '/api/p2p/dispute',
+            p2p_stats: '/api/p2p/stats',
+            stats: '/api/stats',
+            health: '/api/health'
+        },
+        dashboard: '/shared_dashboard.html'
+    });
+});
+
+// ========================================================================
+// P2P TRY-XRP CONVERSION API ENDPOINTS
+// ========================================================================
+
+// Get current XRP/TRY rate from scraped sources
+app.get('/api/p2p/rate', createRateLimiter('exchange-rates'), async (req, res) => {
+    try {
+        const forceRefresh = req.query.refresh === 'true';
+        const rateData = await tryRateScraperService.getCurrentRate(forceRefresh, p2pOrders);
+
+        res.json({
+            success: true,
+            currency: 'TRY',
+            ...rateData,
+            marketStats: tryRateScraperService.getMarketStats(rateData)
+        });
+    } catch (error) {
+        console.error('Error fetching TRY rate:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch XRP/TRY rate',
+            message: error.message
+        });
+    }
+});
+
+// Create P2P order (buy or sell)
+app.post('/api/p2p/create-order', createRateLimiter('payment-intent'), async (req, res) => {
+    try {
+        const {
+            type,           // 'buy' or 'sell'
+            tryAmount,
+            xrpAmount,
+            rate,
+            xrplAddress,
+            paymentMethods,
+            minAmount,
+            maxAmount,
+            timeLimit,
+            metadata
+        } = req.body;
+
+        // Validate inputs
+        if (!type || !tryAmount || !xrpAmount || !rate || !xrplAddress || !paymentMethods) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required fields',
+                required: ['type', 'tryAmount', 'xrpAmount', 'rate', 'xrplAddress', 'paymentMethods']
+            });
+        }
+
+        // Validate order type
+        if (type !== p2pMatchingService.ORDER_TYPE.BUY && type !== p2pMatchingService.ORDER_TYPE.SELL) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid order type',
+                message: 'Type must be "buy" or "sell"'
+            });
+        }
+
+        // Create P2P order
+        const order = p2pMatchingService.createP2POrder({
+            type,
+            tryAmount,
+            xrpAmount,
+            rate,
+            xrplAddress,
+            paymentMethods,
+            minAmount,
+            maxAmount,
+            timeLimit,
+            metadata
+        });
+
+        // Store order
+        p2pOrders.push(order);
+
+        // Find potential matches
+        const matches = p2pMatchingService.findMatchingOrders(order, p2pOrders);
+
+        res.json({
+            success: true,
+            message: 'P2P order created successfully',
+            order: p2pMatchingService.getOrderSummary(order),
+            potentialMatches: matches.slice(0, 5).map(m => p2pMatchingService.getOrderSummary(m))
+        });
+    } catch (error) {
+        console.error('Error creating P2P order:', error);
+        res.status(400).json({
+            success: false,
+            error: 'Failed to create P2P order',
+            message: error.message
+        });
+    }
+});
+
+// Get all open P2P orders
+app.get('/api/p2p/orders', (req, res) => {
+    try {
+        const { type, status, limit = 50 } = req.query;
+
+        // Mark expired orders
+        p2pMatchingService.markExpiredOrders(p2pOrders);
+
+        // Filter orders
+        let filteredOrders = p2pOrders;
+
+        if (type) {
+            filteredOrders = filteredOrders.filter(o => o.type === type);
+        }
+
+        if (status) {
+            filteredOrders = filteredOrders.filter(o => o.status === status);
+        } else {
+            // Default to showing only open orders
+            filteredOrders = filteredOrders.filter(o => o.status === p2pMatchingService.ORDER_STATUS.OPEN);
+        }
+
+        const limitedOrders = filteredOrders
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            .slice(0, parseInt(limit));
+
+        res.json({
+            success: true,
+            count: limitedOrders.length,
+            orders: limitedOrders.map(o => p2pMatchingService.getOrderSummary(o))
+        });
+    } catch (error) {
+        console.error('Error fetching P2P orders:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch P2P orders',
+            message: error.message
+        });
+    }
+});
+
+// Get user's orders by XRPL address
+app.get('/api/p2p/my-orders/:address', (req, res) => {
+    try {
+        const { address } = req.params;
+        const { status, limit = 50 } = req.query;
+
+        // Mark expired orders
+        p2pMatchingService.markExpiredOrders(p2pOrders);
+
+        let userOrders = p2pOrders.filter(o => o.xrplAddress === address);
+
+        if (status) {
+            userOrders = userOrders.filter(o => o.status === status);
+        }
+
+        const limitedOrders = userOrders
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            .slice(0, parseInt(limit));
+
+        res.json({
+            success: true,
+            address: address,
+            count: limitedOrders.length,
+            orders: limitedOrders.map(o => p2pMatchingService.getOrderSummary(o))
+        });
+    } catch (error) {
+        console.error('Error fetching user orders:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch user orders',
+            message: error.message
+        });
+    }
+});
+
+// Match with an existing order
+app.post('/api/p2p/match', createRateLimiter('payment-intent'), (req, res) => {
+    try {
+        const { orderId, counterpartyOrderId } = req.body;
+
+        if (!orderId || !counterpartyOrderId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required fields',
+                required: ['orderId', 'counterpartyOrderId']
+            });
+        }
+
+        const order = p2pOrders.find(o => o.id === orderId);
+        const counterpartyOrder = p2pOrders.find(o => o.id === counterpartyOrderId);
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                error: 'Order not found'
+            });
+        }
+
+        if (!counterpartyOrder) {
+            return res.status(404).json({
+                success: false,
+                error: 'Counterparty order not found'
+            });
+        }
+
+        // Match the orders
+        const matchResult = p2pMatchingService.matchOrders(order, counterpartyOrder);
+
+        res.json({
+            success: true,
+            message: 'Orders matched successfully',
+            match: {
+                order1: p2pMatchingService.getOrderSummary(matchResult.order1),
+                order2: p2pMatchingService.getOrderSummary(matchResult.order2),
+                details: matchResult.match
+            },
+            nextStep: 'Buyer should now transfer TRY via the agreed payment method, then call /api/p2p/confirm-payment'
+        });
+    } catch (error) {
+        console.error('Error matching orders:', error);
+        res.status(400).json({
+            success: false,
+            error: 'Failed to match orders',
+            message: error.message
+        });
+    }
+});
+
+// Confirm TRY payment
+app.post('/api/p2p/confirm-payment', createRateLimiter('conversion'), (req, res) => {
+    try {
+        const { orderId, proofOfPayment } = req.body;
+
+        if (!orderId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing orderId'
+            });
+        }
+
+        const order = p2pOrders.find(o => o.id === orderId);
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                error: 'Order not found'
+            });
+        }
+
+        // Confirm payment
+        p2pMatchingService.confirmPayment(order, proofOfPayment);
+
+        res.json({
+            success: true,
+            message: 'TRY payment confirmed',
+            order: p2pMatchingService.getOrderSummary(order),
+            nextStep: 'Seller should now transfer XRP and call /api/p2p/confirm-xrp with the transaction hash'
+        });
+    } catch (error) {
+        console.error('Error confirming payment:', error);
+        res.status(400).json({
+            success: false,
+            error: 'Failed to confirm payment',
+            message: error.message
+        });
+    }
+});
+
+// Confirm XRP transfer
+app.post('/api/p2p/confirm-xrp', createRateLimiter('conversion'), (req, res) => {
+    try {
+        const { orderId, xrpTransactionHash } = req.body;
+
+        if (!orderId || !xrpTransactionHash) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required fields',
+                required: ['orderId', 'xrpTransactionHash']
+            });
+        }
+
+        const order = p2pOrders.find(o => o.id === orderId);
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                error: 'Order not found'
+            });
+        }
+
+        // Confirm XRP transfer
+        p2pMatchingService.confirmXrpTransfer(order, xrpTransactionHash);
+
+        res.json({
+            success: true,
+            message: 'P2P trade completed successfully',
+            order: p2pMatchingService.getOrderSummary(order),
+            xrpTransactionHash: xrpTransactionHash
+        });
+    } catch (error) {
+        console.error('Error confirming XRP transfer:', error);
+        res.status(400).json({
+            success: false,
+            error: 'Failed to confirm XRP transfer',
+            message: error.message
+        });
+    }
+});
+
+// Cancel order
+app.post('/api/p2p/cancel', createRateLimiter('conversion'), (req, res) => {
+    try {
+        const { orderId, reason } = req.body;
+
+        if (!orderId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing orderId'
+            });
+        }
+
+        const order = p2pOrders.find(o => o.id === orderId);
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                error: 'Order not found'
+            });
+        }
+
+        // Cancel order
+        p2pMatchingService.cancelOrder(order, reason);
+
+        res.json({
+            success: true,
+            message: 'Order cancelled successfully',
+            order: p2pMatchingService.getOrderSummary(order)
+        });
+    } catch (error) {
+        console.error('Error cancelling order:', error);
+        res.status(400).json({
+            success: false,
+            error: 'Failed to cancel order',
+            message: error.message
+        });
+    }
+});
+
+// Raise dispute
+app.post('/api/p2p/dispute', createRateLimiter('conversion'), (req, res) => {
+    try {
+        const { orderId, reason, evidence } = req.body;
+
+        if (!orderId || !reason) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required fields',
+                required: ['orderId', 'reason']
+            });
+        }
+
+        const order = p2pOrders.find(o => o.id === orderId);
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                error: 'Order not found'
+            });
+        }
+
+        // Raise dispute
+        p2pMatchingService.raiseDispute(order, reason, evidence);
+
+        res.json({
+            success: true,
+            message: 'Dispute raised successfully',
+            order: p2pMatchingService.getOrderSummary(order),
+            note: 'A moderator will review your dispute'
+        });
+    } catch (error) {
+        console.error('Error raising dispute:', error);
+        res.status(400).json({
+            success: false,
+            error: 'Failed to raise dispute',
+            message: error.message
+        });
+    }
+});
+
+// Get P2P statistics
+app.get('/api/p2p/stats', (req, res) => {
+    try {
+        // Mark expired orders
+        p2pMatchingService.markExpiredOrders(p2pOrders);
+
+        const stats = p2pMatchingService.calculateOrderStats(p2pOrders);
+
+        res.json({
+            success: true,
+            stats: stats
+        });
+    } catch (error) {
+        console.error('Error fetching P2P stats:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch P2P stats',
+            message: error.message
+        });
+    }
+});
+
+// Get payment methods
+app.get('/api/p2p/payment-methods', (req, res) => {
+    res.json({
+        success: true,
+        paymentMethods: Object.values(p2pMatchingService.PAYMENT_METHODS),
+        descriptions: {
+            [p2pMatchingService.PAYMENT_METHODS.BANK_TRANSFER]: 'Traditional bank transfer (EFT/Havale)',
+            [p2pMatchingService.PAYMENT_METHODS.PAPARA]: 'Papara instant transfer',
+            [p2pMatchingService.PAYMENT_METHODS.ININAL]: 'İninal card transfer',
+            [p2pMatchingService.PAYMENT_METHODS.MEFETE]: 'Mefete instant transfer',
+            [p2pMatchingService.PAYMENT_METHODS.QR_HAVALE]: 'QR code bank transfer'
+        }
+    });
+});
+
+// ========================================================================
+// END P2P TRY-XRP CONVERSION API
+// ========================================================================
+
+// Health check
+app.get('/api/health', (req, res) => {
+    res.json({
+        success: true,
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        database: 'in-memory'
+    });
+});
+
+// Get all wallets
+app.get('/api/wallets', (req, res) => {
+    res.json({
+        success: true,
+        count: wallets.length,
+        wallets: wallets.map(wallet => ({
+            address: wallet.address,
+            public_key: wallet.public_key,
+            created_at: wallet.created_at,
+            last_used: wallet.last_used,
+            is_active: wallet.is_active
+        }))
+    });
+});
+
+// Add wallet
+app.post('/api/wallets', (req, res) => {
+    const { address, seed, public_key, private_key } = req.body;
+    
+    // Check if wallet already exists
+    const existingIndex = wallets.findIndex(w => w.address === address);
+    
+    if (existingIndex >= 0) {
+        // Update existing wallet
+        wallets[existingIndex] = {
+            address, seed, public_key, private_key,
+            created_at: wallets[existingIndex].created_at,
+            last_used: new Date().toISOString(),
+            is_active: true
+        };
+    } else {
+        // Add new wallet
+        wallets.push({
+            address, seed, public_key, private_key,
+            created_at: new Date().toISOString(),
+            last_used: new Date().toISOString(),
+            is_active: true
+        });
+    }
+    
+    res.json({ success: true, message: 'Wallet synced successfully' });
+});
+
+// Get all transactions
+app.get('/api/transactions', (req, res) => {
+    const { limit = 50, offset = 0 } = req.query;
+    
+    const limitedTransactions = transactions
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        .slice(parseInt(offset), parseInt(offset) + parseInt(limit));
+    
+    res.json({
+        success: true,
+        count: limitedTransactions.length,
+        transactions: limitedTransactions.map(tx => ({
+            hash: tx.hash,
+            from_address: tx.from_address,
+            to_address: tx.to_address,
+            amount: tx.amount,
+            memo: tx.memo,
+            timestamp: tx.timestamp,
+            status: tx.status,
+            block_number: tx.block_number,
+            fee: tx.fee
+        }))
+    });
+});
+
+// Add transaction
+app.post('/api/transactions', (req, res) => {
+    const { hash, from_address, to_address, amount, memo, timestamp, status, block_number, fee, raw_transaction } = req.body;
+    
+    // Check if transaction already exists
+    const existingIndex = transactions.findIndex(t => t.hash === hash);
+    
+    if (existingIndex >= 0) {
+        // Update existing transaction
+        transactions[existingIndex] = {
+            hash, from_address, to_address, amount, memo, timestamp, status, block_number, fee, raw_transaction
+        };
+    } else {
+        // Add new transaction
+        transactions.push({
+            hash, from_address, to_address, amount, memo, timestamp, status, block_number, fee, raw_transaction
+        });
+    }
+    
+    res.json({ success: true, message: 'Transaction synced successfully' });
+});
+
+// Get payment requests
+app.get('/api/payment_requests', (req, res) => {
+    const { status, limit = 50 } = req.query;
+    
+    let filteredRequests = paymentRequests;
+    if (status) {
+        filteredRequests = paymentRequests.filter(req => req.status === status);
+    }
+    
+    const limitedRequests = filteredRequests
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, parseInt(limit));
+    
+    res.json({
+        success: true,
+        count: limitedRequests.length,
+        payment_requests: limitedRequests.map(req => ({
+            request_id: req.request_id,
+            amount: req.amount,
+            recipient: req.recipient,
+            memo: req.memo,
+            status: req.status,
+            created_at: req.created_at,
+            completed_at: req.completed_at,
+            expires_at: req.expires_at
+        }))
+    });
+});
+
+// Add payment request
+app.post('/api/payment_requests', (req, res) => {
+    const { request_id, amount, recipient, memo, status, created_at, completed_at, expires_at, qr_data } = req.body;
+    
+    // Check if request already exists
+    const existingIndex = paymentRequests.findIndex(r => r.request_id === request_id);
+    
+    if (existingIndex >= 0) {
+        // Update existing request
+        paymentRequests[existingIndex] = {
+            request_id, amount, recipient, memo, status, created_at, completed_at, expires_at, qr_data
+        };
+    } else {
+        // Add new request
+        paymentRequests.push({
+            request_id, amount, recipient, memo, status, created_at, completed_at, expires_at, qr_data
+        });
+    }
+    
+    res.json({ success: true, message: 'Payment request synced successfully' });
+});
+
+// Get statistics
+app.get('/api/stats', (req, res) => {
+    const activeWallets = wallets.filter(w => w.is_active).length;
+    const totalTransactions = transactions.length;
+    const totalRequests = paymentRequests.length;
+    const pendingRequests = paymentRequests.filter(r => r.status === 'pending').length;
+    const totalVolume = transactions
+        .filter(t => t.status === 'completed')
+        .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+    const recentTransactions = transactions.filter(t => {
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        return new Date(t.timestamp) > oneDayAgo;
+    }).length;
+    
+    res.json({
+        success: true,
+        stats: {
+            active_wallets: activeWallets,
+            total_transactions: totalTransactions,
+            total_requests: totalRequests,
+            pending_requests: pendingRequests,
+            total_volume_xrp: Math.round(totalVolume * 1000000) / 1000000,
+            recent_transactions_24h: recentTransactions,
+            last_updated: new Date().toISOString()
+        }
+    });
+});
+
+// Export all data
+app.get('/api/export', (req, res) => {
+    res.json({
+        success: true,
+        data: {
+            export_timestamp: new Date().toISOString(),
+            wallets: wallets,
+            transactions: transactions,
+            payment_requests: paymentRequests,
+            settings: []
+        }
+    });
+});
+
+// Serve shared dashboard
+app.get('/shared_dashboard.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'shared_dashboard.html'));
+});
+
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'build', 'index.html'));
+});
+
+// Get local IP address
+function getLocalIP() {
+    const os = require('os');
+    const interfaces = os.networkInterfaces();
+    
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return '127.0.0.1';
+}
+
+// Start server
+app.listen(PORT, '0.0.0.0', () => {
+    const localIP = getLocalIP();
+
+    console.log('='.repeat(70));
+    console.log('🚀 CryptoPay P2P TRY-XRP Exchange Server Started!');
+    console.log('='.repeat(70));
+    console.log(`📊 Database: In-Memory (No PostgreSQL required)`);
+    console.log(`💱 Mode: P2P TRY to XRP conversion`);
+    console.log(`🌐 Local URL: http://127.0.0.1:${PORT}`);
+    console.log(`🌍 Network URL: http://${localIP}:${PORT}`);
+    console.log('='.repeat(70));
+    console.log('📚 Available Endpoints:');
+    console.log(`   • API Docs: http://${localIP}:${PORT}/api`);
+    console.log(`   • P2P Rate: http://${localIP}:${PORT}/api/p2p/rate`);
+    console.log(`   • P2P Orders: http://${localIP}:${PORT}/api/p2p/orders`);
+    console.log(`   • P2P Stats: http://${localIP}:${PORT}/api/p2p/stats`);
+    console.log(`   • Payment Methods: http://${localIP}:${PORT}/api/p2p/payment-methods`);
+    console.log(`   • Wallets: http://${localIP}:${PORT}/api/wallets`);
+    console.log(`   • Transactions: http://${localIP}:${PORT}/api/transactions`);
+    console.log(`   • Health: http://${localIP}:${PORT}/api/health`);
+    console.log(`   • Dashboard: http://${localIP}:${PORT}/shared_dashboard.html`);
+    console.log('='.repeat(70));
+    console.log('💡 P2P System - No third-party payment providers required');
+    console.log('🇹🇷 Supports Turkish payment methods: Bank, Papara, İninal, Mefete, QR');
+    console.log('🛑 Press Ctrl+C to stop the server');
+    console.log('='.repeat(70));
+});
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+    console.log('\n🛑 Shutting down server...');
+    console.log('✅ Server stopped');
+    process.exit(0);
+});

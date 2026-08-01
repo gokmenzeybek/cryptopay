@@ -1,0 +1,40 @@
+# Render Blueprint — CryptoPay backend (free tier)
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: cryptopay
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: node server.production.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: XRPL_NETWORK
+        value: testnet
+      - key: XRPL_TESTNET_URL
+        value: wss://s.altnet.rippletest.net:51233
+      - key: PAPARA_ENVIRONMENT
+        value: sandbox
+      - key: POSTGRES_SSL
+        value: "true"
+      - key: DB_POOL_MAX
+        value: "5"
+      - key: RATE_CACHE_TTL_SECONDS
+        value: "300"
+      - key: CORS_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PAPARA_WEBHOOK_SECRET
+        generateValue: true
+      - key: MODERATOR_API_KEY
+        generateValue: true
+      - key: PAPARA_API_KEY
+        sync: false
+      - key: PAPARA_MERCHANT_ID
+        sync: false

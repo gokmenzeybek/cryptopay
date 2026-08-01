@@ -1,0 +1,177 @@
+# ==============================================================================
+# CryptoPay Docker Compose Configuration
+# ==============================================================================
+# This docker-compose.yml file provides easy deployment options for the
+# CryptoPay XRPL payment application with P2P TRY-XRP exchange functionality.
+#
+# Usage:
+#   docker-compose up -d          # Start in background
+#   docker-compose up --build     # Rebuild and start
+#   docker-compose down           # Stop and remove containers
+#   docker-compose logs -f        # View logs
+# ==============================================================================
+
+# Docker Compose version 3.8
+
+services:
+  # ==============================================================================
+  # CryptoPay Application Service
+  # ==============================================================================
+  cryptopay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        VERSION: ${VERSION:-3.0.0}
+        VCS_REF: ${VCS_REF:-$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")}
+    container_name: cryptopay-app
+    restart: unless-stopped
+    ports:
+      - "${EXTERNAL_PORT:-5001}:5001"
+    environment:
+      # Application Configuration
+      - NODE_ENV=production
+      - PORT=5001
+      
+      # Database Configuration
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-cryptopay}
+      - POSTGRES_USER=${POSTGRES_USER:-cryptopay}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      
+      # P2P Exchange Configuration
+      - RATE_CACHE_TTL_SECONDS=${RATE_CACHE_TTL_SECONDS:-300}
+      
+      # Rate Limiting Configuration
+      - RATE_LIMIT_EXCHANGE_RATES=${RATE_LIMIT_EXCHANGE_RATES:-60}
+      - RATE_LIMIT_PAYMENT_INTENT=${RATE_LIMIT_PAYMENT_INTENT:-10}
+      - RATE_LIMIT_CONVERSION=${RATE_LIMIT_CONVERSION:-20}
+      
+      # XRPL Configuration
+      - XRPL_NETWORK=${XRPL_NETWORK:-testnet}
+      
+      # Logging Configuration
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_REQUESTS=${LOG_REQUESTS:-false}
+      
+      # Security Configuration
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      
+      # Required secrets (must be provided at runtime)
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - PAPARA_API_KEY=${PAPARA_API_KEY:?PAPARA_API_KEY must be set}
+      - PAPARA_WEBHOOK_SECRET=${PAPARA_WEBHOOK_SECRET:?PAPARA_WEBHOOK_SECRET must be set}
+      - MODERATOR_API_KEY=${MODERATOR_API_KEY:?MODERATOR_API_KEY must be set}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Mount logs directory for persistence
+      - cryptopay-logs:/app/logs
+    networks:
+      - cryptopay-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5001/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.cryptopay.service=cryptopay"
+      - "com.cryptopay.version=${VERSION:-3.0.0}"
+
+  # ==============================================================================
+  # Nginx Reverse Proxy (Optional)
+  # ==============================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: cryptopay-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+      - "${NGINX_SSL_PORT:-443}:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - cryptopay
+    networks:
+      - cryptopay-network
+    profiles:
+      - nginx
+    labels:
+      - "com.cryptopay.service=nginx"
+
+  # ==============================================================================
+  # Redis Cache (Optional - for production scaling)
+  # ==============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: cryptopay-redis
+    restart: unless-stopped
+    # Redis is only used inside the Docker network; bind to loopback if exposed.
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - cryptopay-redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - cryptopay-network
+    profiles:
+      - redis
+    labels:
+      - "com.cryptopay.service=redis"
+
+  # ==============================================================================
+  # PostgreSQL Database (Optional - for production persistence)
+  # ==============================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: cryptopay-postgres
+    restart: unless-stopped
+    # Expose Postgres only on loopback for local debugging; the app connects
+    # over the Docker network, so this port does not need to be on all interfaces.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-cryptopay}
+      - POSTGRES_USER=${POSTGRES_USER:-cryptopay}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - cryptopay-postgres-data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    networks:
+      - cryptopay-network
+    profiles: []  # Enable by default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cryptopay} -d ${POSTGRES_DB:-cryptopay}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    labels:
+      - "com.cryptopay.service=postgres"
+
+# ==============================================================================
+# Networks
+# ==============================================================================
+networks:
+  cryptopay-network:
+    driver: bridge
+    name: cryptopay-network
+
+# ==============================================================================
+# Volumes
+# ==============================================================================
+volumes:
+  cryptopay-logs:
+    name: cryptopay-logs
+    driver: local
+  cryptopay-redis-data:
+    name: cryptopay-redis-data
+    driver: local
+  cryptopay-postgres-data:
+    name: cryptopay-postgres-data
+    driver: local

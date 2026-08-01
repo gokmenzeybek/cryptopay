@@ -1,0 +1,87 @@
+# ==============================================================================
+# CryptoPay Docker Compose Production Configuration
+# ==============================================================================
+# This file provides production-specific configuration for the CryptoPay
+# application with additional services for scalability and monitoring.
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ==============================================================================
+
+# Docker Compose production configuration
+
+services:
+  cryptopay:
+    # Production overrides
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - LOG_REQUESTS=false
+    # Remove development volumes
+    volumes:
+      - cryptopay-logs:/app/logs
+      - ./.env:/app/.env:ro
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    # Production restart policy
+    restart: always
+    # Production labels
+    labels:
+      - "com.cryptopay.environment=production"
+      - "com.cryptopay.monitoring=true"
+
+  # Enable Redis for production
+  redis:
+    profiles: []  # Enable by default in production
+    # Production Redis configuration
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --save 900 1 --save 300 10
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # Enable PostgreSQL for production
+  postgres:
+    profiles: []  # Enable by default in production
+    # Production PostgreSQL configuration
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-cryptopay}
+      - POSTGRES_USER=${POSTGRES_USER:-cryptopay}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # Enable Nginx for production
+  nginx:
+    profiles: []  # Enable by default in production
+    # Production Nginx configuration
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+# ==============================================================================
+# Additional Production Volumes
+# ==============================================================================
+volumes: {}

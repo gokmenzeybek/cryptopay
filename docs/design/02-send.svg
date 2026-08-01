@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif">
+  <rect x="0" y="0" width="390" height="844" rx="44" fill="#101014"/>
+  <rect x="6" y="6" width="378" height="832" rx="38" fill="#FAFAF7"/>
+
+  <!-- nav -->
+  <text x="32" y="62" font-size="18" fill="#141414">‹</text>
+  <text x="195" y="62" font-size="16" font-weight="600" text-anchor="middle" fill="#141414">Send</text>
+
+  <!-- recipient -->
+  <text x="32" y="116" font-size="13" font-weight="600" letter-spacing="0.08em" fill="#6B6B66">TO</text>
+  <rect x="24" y="128" width="342" height="60" rx="16" fill="#F0EFEA"/>
+  <text x="44" y="165" font-size="15" fill="#141414">rKai7…4Fx</text>
+  <text x="342" y="165" font-size="16" text-anchor="end" fill="#6B6B66">📷</text>
+  <rect x="24" y="196" width="342" height="30" rx="8" fill="#E4F9EE"/>
+  <text x="36" y="216" font-size="12" fill="#00A866">✓ Valid address · first time sending here</text>
+
+  <!-- amount -->
+  <text x="32" y="270" font-size="13" font-weight="600" letter-spacing="0.08em" fill="#6B6B66">AMOUNT</text>
+  <text x="32" y="350" font-size="64" font-weight="700" fill="#141414">25</text>
+  <rect x="160" y="306" width="120" height="40" rx="20" fill="#F0EFEA"/>
+  <text x="200" y="331" font-size="14" font-weight="600" text-anchor="middle" fill="#141414">XRP</text>
+  <text x="252" y="331" font-size="14" text-anchor="middle" fill="#6B6B66">₺ TRY</text>
+  <text x="32" y="386" font-size="15" fill="#6B6B66">≈ ₺1,050.00 · 1 XRP = ₺42.00</text>
+
+  <!-- note (opt-in) -->
+  <rect x="24" y="416" width="342" height="52" rx="16" fill="none" stroke="#D8D7D0" stroke-dasharray="5 4"/>
+  <text x="195" y="448" font-size="14" text-anchor="middle" fill="#6B6B66">+ Add a note (public on the ledger)</text>
+
+  <!-- fee row -->
+  <text x="32" y="516" font-size="13" fill="#6B6B66">Network fee</text>
+  <text x="342" y="516" font-size="13" text-anchor="end" fill="#141414">0.00001 XRP</text>
+
+  <!-- CTA -->
+  <rect x="24" y="700" width="342" height="64" rx="32" fill="#141414"/>
+  <text x="195" y="739" font-size="17" font-weight="600" text-anchor="middle" fill="#FAFAF7">Review payment</text>
+
+  <!-- keypad hint -->
+  <text x="195" y="796" font-size="12" text-anchor="middle" fill="#9C9C95">numeric keypad appears here</text>
+</svg>

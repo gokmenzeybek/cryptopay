@@ -1,0 +1,159 @@
+# ==============================================================================
+# CryptoPay Test Docker Compose Configuration
+# ==============================================================================
+# This docker-compose.yml file provides testing environments for the
+# CryptoPay XRPL payment application.
+#
+# Usage:
+#   docker-compose -f docker-compose.test.yml up test-unit          # Run unit tests
+#   docker-compose -f docker-compose.test.yml up test-coverage     # Run coverage tests
+#   docker-compose -f docker-compose.test.yml up test-integration  # Run integration tests
+#   docker-compose -f docker-compose.test.yml up test-dev          # Development testing
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # ==============================================================================
+  # Unit Tests Service
+  # ==============================================================================
+  test-unit:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: test-runner
+    container_name: cryptopay-test-unit
+    environment:
+      - NODE_ENV=test
+      - CI=true
+    volumes:
+      - ./coverage:/app/coverage
+      - ./test-results:/app/test-results
+    command: ["npm", "run", "test:ci"]
+    profiles:
+      - unit
+
+  # ==============================================================================
+  # Coverage Tests Service
+  # ==============================================================================
+  test-coverage:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: test-coverage
+    container_name: cryptopay-test-coverage
+    environment:
+      - NODE_ENV=test
+      - CI=true
+    volumes:
+      - ./coverage:/app/coverage
+      - ./test-results:/app/test-results
+    command: ["npm", "run", "test:coverage"]
+    profiles:
+      - coverage
+
+  # ==============================================================================
+  # Integration Tests Service
+  # ==============================================================================
+  test-integration:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: test-integration
+    container_name: cryptopay-test-integration
+    environment:
+      - NODE_ENV=test
+      - CI=true
+      - POSTGRES_HOST=postgres-test
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=cryptopay_test
+      - POSTGRES_USER=cryptopay_test
+      - POSTGRES_PASSWORD=cryptopay_test_password
+    depends_on:
+      - postgres-test
+    volumes:
+      - ./test-results:/app/test-results
+    command: ["npm", "run", "test:api"]
+    profiles:
+      - integration
+
+  # ==============================================================================
+  # Development Testing Service
+  # ==============================================================================
+  test-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: test-dev
+    container_name: cryptopay-test-dev
+    environment:
+      - NODE_ENV=test
+      - CI=false
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ./coverage:/app/coverage
+    ports:
+      - "5001:5001"
+      - "3000:3000"
+    command: ["npm", "run", "test:watch"]
+    profiles:
+      - dev
+
+  # ==============================================================================
+  # Test Database Service
+  # ==============================================================================
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: cryptopay-postgres-test
+    environment:
+      - POSTGRES_DB=cryptopay_test
+      - POSTGRES_USER=cryptopay_test
+      - POSTGRES_PASSWORD=cryptopay_test_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-test-data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    profiles:
+      - integration
+      - dev
+
+  # ==============================================================================
+  # Test Application Service (for integration tests)
+  # ==============================================================================
+  app-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cryptopay-app-test
+    environment:
+      - NODE_ENV=test
+      - PORT=5001
+      - POSTGRES_HOST=postgres-test
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=cryptopay_test
+      - POSTGRES_USER=cryptopay_test
+      - POSTGRES_PASSWORD=cryptopay_test_password
+    ports:
+      - "5002:5001"
+    depends_on:
+      - postgres-test
+    profiles:
+      - integration
+
+# ==============================================================================
+# Networks
+# ==============================================================================
+networks:
+  test-network:
+    driver: bridge
+    name: cryptopay-test-network
+
+# ==============================================================================
+# Volumes
+# ==============================================================================
+volumes:
+  postgres-test-data:
+    name: cryptopay-postgres-test-data
+    driver: local

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif">
+  <!-- phone frame -->
+  <rect x="0" y="0" width="390" height="844" rx="44" fill="#101014"/>
+  <rect x="6" y="6" width="378" height="832" rx="38" fill="#FAFAF7"/>
+
+  <!-- header -->
+  <text x="32" y="66" font-size="22" font-weight="700" fill="#141414">cryptopay</text>
+  <circle cx="342" cy="58" r="18" fill="#F0EFEA"/>
+  <text x="342" y="63" font-size="14" text-anchor="middle" fill="#6B6B66">⚙</text>
+
+  <!-- balance card -->
+  <rect x="24" y="92" width="342" height="168" rx="24" fill="#141414"/>
+  <text x="48" y="132" font-size="13" fill="#9C9C95">Total balance</text>
+  <text x="48" y="180" font-size="44" font-weight="700" fill="#FAFAF7">128.40 <tspan font-size="20" font-weight="500" fill="#9C9C95">XRP</tspan></text>
+  <text x="48" y="212" font-size="15" fill="#9C9C95">≈ ₺5,392.80</text>
+  <rect x="262" y="196" width="80" height="34" rx="17" fill="#1F1F26"/>
+  <text x="302" y="218" font-size="13" text-anchor="middle" fill="#00D47E">+ Add funds</text>
+
+  <!-- primary actions -->
+  <rect x="24" y="284" width="164" height="96" rx="20" fill="#00D47E"/>
+  <text x="44" y="326" font-size="20" fill="#06281A">↑</text>
+  <text x="44" y="356" font-size="17" font-weight="600" fill="#06281A">Send</text>
+
+  <rect x="202" y="284" width="164" height="96" rx="20" fill="#141414"/>
+  <text x="222" y="326" font-size="20" fill="#00D47E">↓</text>
+  <text x="222" y="356" font-size="17" font-weight="600" fill="#FAFAF7">Request</text>
+
+  <!-- scan row -->
+  <rect x="24" y="396" width="342" height="56" rx="16" fill="#F0EFEA"/>
+  <text x="48" y="430" font-size="15" fill="#141414">📷  Scan a QR to pay</text>
+
+  <!-- activity -->
+  <text x="32" y="500" font-size="13" font-weight="600" letter-spacing="0.08em" fill="#6B6B66">ACTIVITY</text>
+
+  <!-- row 1 -->
+  <circle cx="52" cy="540" r="20" fill="#E4F9EE"/>
+  <text x="52" y="545" font-size="14" text-anchor="middle" fill="#00A866">↓</text>
+  <text x="84" y="534" font-size="15" font-weight="600" fill="#141414">From rKai…4Fx</text>
+  <text x="84" y="554" font-size="12" fill="#6B6B66">Today, 14:02</text>
+  <text x="342" y="540" font-size="15" font-weight="600" text-anchor="end" fill="#00A866">+25 XRP</text>
+
+  <!-- row 2 -->
+  <circle cx="52" cy="600" r="20" fill="#FBEAEA"/>
+  <text x="52" y="605" font-size="14" text-anchor="middle" fill="#D44747">↑</text>
+  <text x="84" y="594" font-size="15" font-weight="600" fill="#141414">To rMrt…9Qz</text>
+  <text x="84" y="614" font-size="12" fill="#6B6B66">Yesterday</text>
+  <text x="342" y="600" font-size="15" font-weight="600" text-anchor="end" fill="#141414">−10 XRP</text>
+
+  <!-- row 3 -->
+  <circle cx="52" cy="660" r="20" fill="#F0EFEA"/>
+  <text x="52" y="665" font-size="14" text-anchor="middle" fill="#6B6B66">₺</text>
+  <text x="84" y="654" font-size="15" font-weight="600" fill="#141414">Added funds · Papara</text>
+  <text x="84" y="674" font-size="12" fill="#6B6B66">Mon</text>
+  <text x="342" y="660" font-size="15" font-weight="600" text-anchor="end" fill="#00A866">+50 XRP</text>
+
+  <!-- tab bar -->
+  <rect x="24" y="772" width="342" height="52" rx="26" fill="#F0EFEA"/>
+  <text x="82" y="804" font-size="13" font-weight="600" text-anchor="middle" fill="#141414">Home</text>
+  <text x="168" y="804" font-size="13" text-anchor="middle" fill="#6B6B66">Activity</text>
+  <text x="254" y="804" font-size="13" text-anchor="middle" fill="#6B6B66">Convert</text>
+  <text x="330" y="804" font-size="13" text-anchor="middle" fill="#6B6B66">Settings</text>
+</svg>
