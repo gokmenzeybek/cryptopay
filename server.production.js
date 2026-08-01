@@ -189,30 +189,10 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 app.use(sanitizeInput);
 
 // ==============================================================================
-// RATE LIMITING
-// ==============================================================================
-
-// Global rate limiting
-app.use(createRateLimiter(
-  parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100
-));
-
-// ==============================================================================
-// STATIC FILES
-// ==============================================================================
-
-app.use(express.static(path.join(__dirname, 'build'), {
-  maxAge: NODE_ENV === 'production' ? '1d' : 0,
-  etag: true,
-  lastModified: true
-}));
-
-// ==============================================================================
 // HEALTH CHECKS
 // ==============================================================================
 
-// Basic health check
+// Basic health check (bypasses rate-limiting for infrastructure probes)
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
@@ -222,7 +202,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Detailed health check
+// Detailed health check (bypasses rate-limiting for infrastructure probes)
 app.get('/api/health', catchAsync(async (req, res) => {
   const dbHealth = await healthCheck();
 
@@ -243,6 +223,26 @@ app.get('/api/health', catchAsync(async (req, res) => {
       unit: 'MB'
     }
   });
+}));
+
+// ==============================================================================
+// RATE LIMITING
+// ==============================================================================
+
+// Global rate limiting
+app.use(createRateLimiter(
+  parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100
+));
+
+// ==============================================================================
+// STATIC FILES
+// ==============================================================================
+
+app.use(express.static(path.join(__dirname, 'build'), {
+  maxAge: NODE_ENV === 'production' ? '1d' : 0,
+  etag: true,
+  lastModified: true
 }));
 
 // ==============================================================================
