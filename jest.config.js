@@ -50,12 +50,12 @@ module.exports = {
   
   // Transform configuration
   transform: {
-    '^.+\\.(js|jsx)$': 'babel-jest'
+    '^.+\\.(mjs|js|jsx)$': 'babel-jest'
   },
 
   // Transform ESM-only dependencies in node_modules
   transformIgnorePatterns: [
-    '/node_modules/(?!.*(?:@noble/|@scure/))'
+    '/node_modules/(?!.*(?:@noble/|@scure/|@vercel/))'
   ],
   
   // Test timeout

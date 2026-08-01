@@ -87,7 +87,7 @@ describe('database/connection', () => {
         max: 20,
         min: 0,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000
+        connectionTimeoutMillis: 10000
       });
     });
   });

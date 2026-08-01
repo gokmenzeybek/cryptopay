@@ -62,6 +62,7 @@ const Header = () => {
         <NavLink to="/" className={isActive('/')}>Home</NavLink>
         <NavLink to="/pay" className={isActive('/pay')}>Send</NavLink>
         <NavLink to="/request" className={isActive('/request')}>Request</NavLink>
+        <NavLink to="/p2p" className={isActive('/p2p')}>Convert</NavLink>
         <NavLink to="/settings" className={isActive('/settings')}>Wallet</NavLink>
       </Nav>
     </HeaderContainer>

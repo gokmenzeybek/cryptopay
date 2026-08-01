@@ -33,7 +33,8 @@ jest.mock('../../services/authService', () => ({
     login: jest.fn().mockResolvedValue({ token: 't' }),
     authFetch: jest.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true }) }),
     getToken: jest.fn().mockReturnValue('t'),
-    logout: jest.fn()
+    logout: jest.fn(),
+    setBaseUrl: jest.fn()
   }
 }));
 
@@ -97,6 +98,12 @@ describe('useXRPL hook (current contract)', () => {
   });
 
   describe('apiBaseUrl / wsBaseUrl (M2 origin-based contract)', () => {
+    it('throws when used outside the XRPLProvider', () => {
+      expect(() => renderHook(() => useXRPL())).toThrow(
+        'useXRPL must be used within an XRPLProvider'
+      );
+    });
+
     it('uses window.location.origin by default (CSP self-safe)', async () => {
       installXrpl(makeClient());
       const { result } = renderHook(() => useXRPL(), { wrapper });
@@ -157,6 +164,19 @@ describe('useXRPL hook (current contract)', () => {
         expect.stringContaining('Failed to connect to XRPL')
       );
     });
+
+    it('returns null when server info is missing', async () => {
+      const client = makeClient({ request: jest.fn().mockResolvedValue({ result: {} }) });
+      installXrpl(client);
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      let returned;
+      await act(async () => {
+        returned = await result.current.connectToXRPL();
+      });
+
+      expect(returned).toBeNull();
+    });
   });
 
   describe('createWallet', () => {
@@ -216,6 +236,18 @@ describe('useXRPL hook (current contract)', () => {
         expect.stringContaining('faucet down')
       );
     });
+
+    it('throws when reconnecting during wallet creation fails', async () => {
+      const client = makeClient({ request: jest.fn().mockResolvedValue({ result: {} }) });
+      installXrpl(client);
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      await expect(
+        act(async () => {
+          await result.current.createWallet();
+        })
+      ).rejects.toThrow('Failed to connect to XRPL');
+    });
   });
 
   describe('loadExistingWallet (encrypted client-side storage only)', () => {
@@ -267,6 +299,24 @@ describe('useXRPL hook (current contract)', () => {
       expect(toast.error).toHaveBeenCalledWith(
         expect.stringContaining('Could not unlock wallet')
       );
+    });
+
+    it('unlocks a wallet when no live connection exists', async () => {
+      hasStoredWallet.mockReturnValue(true);
+      getStoredWalletAddress.mockReturnValue(null);
+      loadWalletEncrypted.mockResolvedValue({ seed: mockWallet.seed });
+      window.prompt = jest.fn().mockReturnValue('wallet-pw');
+      const client = makeClient({ request: jest.fn().mockResolvedValue({ result: {} }) });
+      installXrpl(client);
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      let loaded;
+      await act(async () => {
+        loaded = await result.current.loadExistingWallet();
+      });
+
+      expect(loaded).toBe(true);
+      expect(result.current.wallet).toBe(mockWallet);
     });
   });
 
@@ -369,6 +419,52 @@ describe('useXRPL hook (current contract)', () => {
         status: 'completed'
       });
     }, 15000);
+
+    it('syncs the fee as zero when the prepared transaction lacks a Fee', async () => {
+      const client = makeClient({ autofill: jest.fn().mockResolvedValue({}) });
+      installXrpl(client);
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      await act(async () => {
+        await result.current.createWallet();
+      });
+
+      let payment;
+      await act(async () => {
+        payment = await result.current.sendPayment('rDest123456789012345678901234', 20, '');
+      });
+
+      expect(payment).toEqual({ success: true, hash: 'tx_hash_123' });
+    });
+
+    it('throws when the validated transaction fails on ledger', async () => {
+      const client = makeClient({
+        request: jest.fn().mockImplementation((req) => {
+          if (req.command === 'tx') {
+            return Promise.resolve({ result: { validated: true, meta: { TransactionResult: 'tecUNFUNDED' } } });
+          }
+          return Promise.resolve({
+            result: {
+              info: { validated_ledger: { base_reserve_xrp: '10000000' } },
+              validated: true,
+              meta: { TransactionResult: 'tesSUCCESS' }
+            }
+          });
+        })
+      });
+      installXrpl(client);
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      await act(async () => {
+        await result.current.createWallet();
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.sendPayment('rDest123456789012345678901234', 20, '');
+        })
+      ).rejects.toThrow('Transaction failed: tecUNFUNDED');
+    });
   });
 
   describe('waitForValidation', () => {
@@ -389,6 +485,21 @@ describe('useXRPL hook (current contract)', () => {
           delayMs: 1
         })
       ).rejects.toThrow('Transaction not validated in time');
+    });
+
+    it('rethrows errors that are not txnNotFound', async () => {
+      const client = makeClient({
+        request: jest.fn().mockRejectedValue(new Error('node unavailable'))
+      });
+      installXrpl(client);
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      await expect(
+        result.current.waitForValidation(client, 'H'.repeat(64), {
+          maxAttempts: 2,
+          delayMs: 1
+        })
+      ).rejects.toThrow('node unavailable');
     });
   });
 });

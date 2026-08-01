@@ -17,7 +17,7 @@ describe('Header', () => {
   test('renders the wordmark and essential consumer nav links', () => {
     renderAt('/');
     expect(screen.getByText('cryptopay')).toBeInTheDocument();
-    for (const label of ['Home', 'Send', 'Request', 'Wallet']) {
+    for (const label of ['Home', 'Send', 'Request', 'Convert', 'Wallet']) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
   });
@@ -36,6 +36,7 @@ describe('Header', () => {
   test('links point at the right routes', () => {
     renderAt('/');
     expect(screen.getByText('Request').closest('a')).toHaveAttribute('href', '/request');
+    expect(screen.getByText('Convert').closest('a')).toHaveAttribute('href', '/p2p');
     expect(screen.getByText('Wallet').closest('a')).toHaveAttribute('href', '/settings');
   });
 });

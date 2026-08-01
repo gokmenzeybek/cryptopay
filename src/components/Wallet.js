@@ -176,7 +176,7 @@ const Wallet = () => {
         <InfoItem>
           <InfoLabel>XRPL Connection Status</InfoLabel>
           <StatusValue $connected={isConnected}>
-            {isConnected ? '✅ Connected' : '❌ Disconnected'}
+            {isConnected ? 'Connected' : 'Disconnected'}
           </StatusValue>
           {!isConnected && (
             <SecondaryButton 

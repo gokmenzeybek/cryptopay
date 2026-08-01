@@ -139,6 +139,42 @@ describe('Home — with wallet', () => {
     expect(screen.queryByText(/≈ ₺/)).not.toBeInTheDocument();
   });
 
+  test('renders payment request rows with status chips and edge-case fields', async () => {
+    global.fetch = jest.fn((url) => {
+      if (url.includes('/api/p2p/rate')) {
+        return Promise.resolve({ json: () => Promise.resolve({ success: true, rate: '30' }) });
+      }
+      if (url.includes('/api/payment_requests')) {
+        return Promise.resolve({
+          json: () => Promise.resolve({
+            success: true,
+            paymentRequests: [
+              { request_id: 1, from_address: OTHER, to_address: ADDR, amount_xrp: '100', status: 'paid', created_at: '2026-01-01T00:00:00Z' },
+              { request_id: 2, from_address: ADDR, to_address: OTHER, amount_xrp: '50', status: 'expired', created_at: '2026-01-02T00:00:00Z' },
+              { request_id: 3, from_address: OTHER, to_address: ADDR, amount_xrp: null, status: 'open', created_at: null }
+            ]
+          })
+        });
+      }
+      return Promise.resolve({
+        json: () => Promise.resolve({
+          success: true,
+          transactions: [
+            { id: 9, tx_hash: 'H9', from_address: OTHER, to_address: ADDR, amount_xrp: null, created_at: null }
+          ]
+        })
+      });
+    });
+    renderHome();
+    await waitFor(() => expect(screen.getAllByText(/You requested from/).length).toBe(2));
+    expect(screen.getByText(/Request to/)).toBeInTheDocument();
+    expect(screen.getByText('paid')).toBeInTheDocument();
+    expect(screen.getByText('expired')).toBeInTheDocument();
+    expect(screen.getByText('open')).toBeInTheDocument();
+    expect(screen.getByText(/100 XRP/)).toBeInTheDocument();
+    expect(screen.getByText(/\+0 XRP/)).toBeInTheDocument();
+  });
+
   test('navigation buttons route to /pay and /request, scan navigates', () => {
     renderHome();
     fireEvent.click(screen.getByText('Send'));

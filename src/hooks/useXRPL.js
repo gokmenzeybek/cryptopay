@@ -139,7 +139,7 @@ export const XRPLProvider = ({ children }) => {
         throw new Error('Failed to get server info from XRPL');
       }
     } catch (error) {
-      console.error('❌ Failed to connect to XRPL:', error);
+      console.error('Failed to connect to XRPL:', error);
       toast.error(`Failed to connect to XRPL: ${error.message}`);
       setIsConnected(false);
       return null;
@@ -200,7 +200,6 @@ export const XRPLProvider = ({ children }) => {
         toast.warn('Wallet NOT saved on this device — export it or it will be lost on refresh');
       }
 
-      toast.success(`Wallet created! Address: ${newWallet.address}`);
       return newWallet;
     } catch (error) {
       console.error('Error creating wallet:', error);
@@ -239,7 +238,6 @@ export const XRPLProvider = ({ children }) => {
         setBalance(walletBalance);
       }
 
-      toast.success(`Wallet unlocked: ${newWallet.address}`);
       await autoLogin(newWallet);
       return true;
     } catch (error) {
@@ -267,7 +265,6 @@ export const XRPLProvider = ({ children }) => {
   const sendPayment = async (recipientAddress, amount, memo = '') => {
     try {
       setLoading(true);
-      toast.info('Preparing transaction...');
 
       if (!wallet) {
         throw new Error('No wallet available');
@@ -340,13 +337,9 @@ export const XRPLProvider = ({ children }) => {
 
       // Autofill transaction
       const preparedTx = await client.autofill(paymentTransaction);
-      
-      toast.info('Signing transaction...');
 
       // Sign transaction
       const signedTx = wallet.sign(preparedTx);
-      
-      toast.info('Submitting transaction...');
 
       // Reliable submit + validation
       const prelim = await client.submit(signedTx.tx_blob);
@@ -355,8 +348,6 @@ export const XRPLProvider = ({ children }) => {
       }
       const validated = await waitForValidation(client, signedTx.hash);
       if (validated.meta?.TransactionResult === 'tesSUCCESS') {
-        toast.success(`Payment successful! Transaction Hash: ${signedTx.hash}`);
-        
         // Refresh balance
         await refreshBalance();
         

@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import PaymentConfirmation from './PaymentConfirmation';
 import XRPConfirmation from './XRPConfirmation';
 import DisputeResolution from './DisputeResolution';
+import ConfirmDialog from './ConfirmDialog';
 import { useXRPL } from '../hooks/useXRPL';
 import authService from '../services/authService';
 import theme from '../theme';
@@ -213,6 +214,7 @@ const OrderDetails = ({
   const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false);
   const [showXRPConfirmation, setShowXRPConfirmation] = useState(false);
   const [showDisputeResolution, setShowDisputeResolution] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [lockingEscrow, setLockingEscrow] = useState(false);
 
@@ -274,14 +276,12 @@ const OrderDetails = ({
     onDisputeRaised(orderId);
   };
 
-  const handleCancelOrder = async () => {
-    const reason = window.prompt('Reason for cancelling (optional):') || 'User cancelled';
-
+  const handleCancelOrder = async (reason) => {
     setCancelling(true);
     try {
       const response = await authService.authFetch(`${apiBaseUrl}/api/p2p/cancel`, {
         method: 'POST',
-        body: JSON.stringify({ orderId: order.id, reason })
+        body: JSON.stringify({ orderId: order.id, reason: reason || 'User cancelled' })
       });
       const data = await response.json();
 
@@ -574,7 +574,7 @@ const OrderDetails = ({
             {canCancelOrder() && (
               <DangerBtn
                 disabled={cancelling}
-                onClick={handleCancelOrder}
+                onClick={() => setShowCancelDialog(true)}
               >
                 {cancelling ? 'Cancelling…' : 'Cancel Order'}
               </DangerBtn>
@@ -604,6 +604,21 @@ const OrderDetails = ({
           order={order}
           onClose={() => setShowDisputeResolution(false)}
           onDisputeRaised={handleDisputeRaised}
+        />
+      )}
+
+      {showCancelDialog && (
+        <ConfirmDialog
+          title="Cancel this order?"
+          description="The order will close and stop matching. Optionally add a reason for the record."
+          inputLabel="Reason (optional)"
+          placeholder="e.g. Changed my mind"
+          confirmLabel="Cancel order"
+          onSubmit={(reason) => {
+            setShowCancelDialog(false);
+            handleCancelOrder(reason);
+          }}
+          onCancel={() => setShowCancelDialog(false)}
         />
       )}
     </ModalOverlay>

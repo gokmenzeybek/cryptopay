@@ -10,6 +10,7 @@ import Dashboard from './components/Dashboard';
 import P2PExchange from './components/P2PExchange';
 import { XRPLProvider } from './hooks/useXRPL';
 import theme from './theme';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 // Paper-first shell (M1, UI_DESIGN §3/§11): the app is mobile-first and
 // centers in a readable column on desktop; legacy wide screens (Convert)
@@ -50,6 +51,7 @@ function App() {
               <Route path="/dashboard" element={<Dashboard />} />
             </Routes>
           </Content>
+          <SpeedInsights />
         </MainContent>
       </AppContainer>
     </XRPLProvider>

@@ -106,7 +106,6 @@ describe('ConfirmSheet', () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText('Confirm and send payment'));
     });
-    expect(toast.error).toHaveBeenCalledWith('insufficient funds');
     expect(screen.getByText(/didn't go through/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('Try again'));
     expect(screen.getByText(/slide to send/)).toBeInTheDocument();

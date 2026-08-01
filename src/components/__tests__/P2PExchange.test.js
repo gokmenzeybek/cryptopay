@@ -80,17 +80,17 @@ describe('P2PExchange', () => {
 
   test('tab switching renders Orders, My Orders and Create views', async () => {
     await renderExchange();
-    fireEvent.click(screen.getByText('📋 Orders'));
+    fireEvent.click(screen.getByText('Orders'));
     expect(screen.getByRole('heading', { name: 'All Orders' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('👤 My Orders'));
+    fireEvent.click(screen.getByText('My Orders'));
     expect(screen.getByPlaceholderText('Enter your XRPL address')).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText('Enter your XRPL address'), {
       target: { value: 'rMineAddress' }
     });
     await waitFor(() => expect(screen.getByText('₺500.00')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('➕ Create Order'));
+    fireEvent.click(screen.getByText('Create Order'));
     expect(screen.getAllByRole('heading', { name: 'Create New Order' }).length).toBeGreaterThan(0);
   });
 
@@ -114,14 +114,15 @@ describe('P2PExchange', () => {
     });
     await renderExchange();
     // set my address and wait for empty my-orders fetch
-    fireEvent.click(screen.getByText('👤 My Orders'));
+    fireEvent.click(screen.getByText('My Orders'));
     fireEvent.change(screen.getByPlaceholderText('Enter your XRPL address'), {
       target: { value: 'rMine' }
     });
     await act(async () => {});
-    fireEvent.click(screen.getByText('📊 Market'));
+    fireEvent.click(screen.getByText('Market'));
     await waitFor(() => screen.getByText('₺1000.00'));
     fireEvent.click(screen.getByText('Match'));
+    fireEvent.click(screen.getByText('Match order'));
     await waitFor(() =>
       expect(screen.getByText(/You need your own open buy order/)).toBeInTheDocument()
     );
@@ -129,16 +130,16 @@ describe('P2PExchange', () => {
 
   test('successful match shows success and opens matched order details', async () => {
     await renderExchange();
-    fireEvent.click(screen.getByText('👤 My Orders'));
+    fireEvent.click(screen.getByText('My Orders'));
     fireEvent.change(screen.getByPlaceholderText('Enter your XRPL address'), {
       target: { value: 'rMine' }
     });
     await waitFor(() => expect(screen.getByText('₺500.00')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('📊 Market'));
+    fireEvent.click(screen.getByText('Market'));
     await waitFor(() => screen.getByText('₺1000.00'));
-    await act(async () => {
-      fireEvent.click(screen.getByText('Match'));
-    });
+    fireEvent.click(screen.getByText('Match'));
+    await waitFor(() => screen.getByText('Match order'));
+    fireEvent.click(screen.getByText('Match order'));
     await waitFor(() => expect(screen.getByText('Orders matched successfully!')).toBeInTheDocument());
     expect(authService.authFetch).toHaveBeenCalledWith(
       'http://localhost:5001/api/p2p/match',
@@ -159,16 +160,16 @@ describe('P2PExchange', () => {
       return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
     });
     await renderExchange();
-    fireEvent.click(screen.getByText('👤 My Orders'));
+    fireEvent.click(screen.getByText('My Orders'));
     fireEvent.change(screen.getByPlaceholderText('Enter your XRPL address'), {
       target: { value: 'rMine' }
     });
     await waitFor(() => expect(screen.getByText('₺500.00')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('📊 Market'));
+    fireEvent.click(screen.getByText('Market'));
     await waitFor(() => screen.getByText('₺1000.00'));
-    await act(async () => {
-      fireEvent.click(screen.getByText('Match'));
-    });
+    fireEvent.click(screen.getByText('Match'));
+    await waitFor(() => screen.getByText('Match order'));
+    fireEvent.click(screen.getByText('Match order'));
     await waitFor(() => expect(screen.getByText('incompatible orders')).toBeInTheDocument());
   });
 

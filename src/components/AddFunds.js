@@ -3,6 +3,7 @@ import styled, { keyframes } from 'styled-components';
 import { toast } from 'react-toastify';
 import { useXRPL } from '../hooks/useXRPL';
 import authService from '../services/authService';
+import { ClockIcon } from './icons';
 import theme from '../theme';
 
 /**
@@ -631,7 +632,9 @@ const AddFunds = ({ onClose }) => {
               </>
             ) : (
               <>
-                <WaitingIcon>⏳</WaitingIcon>
+                <WaitingIcon>
+                  <ClockIcon width={30} height={30} />
+                </WaitingIcon>
                 <WaitingTitle>Waiting for seller</WaitingTitle>
                 <WaitingSub>
                   Your TRY payment was reported. The seller will verify and release your XRP.

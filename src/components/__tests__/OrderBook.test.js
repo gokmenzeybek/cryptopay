@@ -67,21 +67,22 @@ describe('OrderBook', () => {
     expect(onOrderSelect).toHaveBeenCalledWith(ORDERS[0]);
   });
 
-  test('match button confirms via window.confirm', () => {
+  test('match button opens a confirm dialog and confirming matches', () => {
     const onOrderMatch = jest.fn();
-    window.confirm = jest.fn().mockReturnValue(true);
     render(<OrderBook orders={ORDERS} onOrderMatch={onOrderMatch} />);
     fireEvent.click(screen.getByText('Match'));
-    expect(window.confirm).toHaveBeenCalled();
+    expect(screen.getByText('Match this buy order?')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Match order'));
     expect(onOrderMatch).toHaveBeenCalledWith(1);
   });
 
-  test('declined confirmation does not match', () => {
+  test('cancelling the confirm dialog does not match', () => {
     const onOrderMatch = jest.fn();
-    window.confirm = jest.fn().mockReturnValue(false);
     render(<OrderBook orders={ORDERS} onOrderMatch={onOrderMatch} />);
     fireEvent.click(screen.getByText('Match'));
+    fireEvent.click(screen.getByText('Cancel'));
     expect(onOrderMatch).not.toHaveBeenCalled();
+    expect(screen.queryByText('Match this buy order?')).not.toBeInTheDocument();
   });
 
   test('no match buttons for my orders; View button on matched', () => {
@@ -96,5 +97,31 @@ describe('OrderBook', () => {
     render(<OrderBook orders={[{ id: 9, type: 'buy', status: 'open', tryAmount: '1', xrpAmount: '1', rate: '2', createdAt: '2026-01-01' }]} />);
     expect(screen.getByText('₺1.00')).toBeInTheDocument();
     expect(screen.getByText('₺2.00')).toBeInTheDocument();
+  });
+
+  test('renders every order status badge variant', () => {
+    const statuses = ['open', 'matched', 'payment_confirmed', 'completed', 'cancelled', 'disputed', 'expired', 'some_unknown'];
+    const orders = statuses.map((status, i) => ({
+      id: i + 1, type: 'buy', status, tryAmount: String(100 * (i + 1)),
+      xrpAmount: '1', rate: '40', paymentMethods: ['papara'], createdAt: '2026-01-01T00:00:00Z'
+    }));
+    render(<OrderBook orders={orders} />);
+    statuses.forEach((status) => {
+      expect(screen.getByText(status.replace('_', ' '))).toBeInTheDocument();
+    });
+  });
+
+  test('defaults to an empty order list', () => {
+    render(<OrderBook />);
+    expect(screen.getByText('No orders found')).toBeInTheDocument();
+  });
+
+  test('handles orders missing id and non-numeric amount/rate', () => {
+    render(<OrderBook orders={[{ type: 'buy', status: 'open', tryAmount: 'abc', rate: null, xrpAmount: '1', paymentMethods: ['papara'] }]} onOrderMatch={jest.fn()} />);
+    expect(screen.getAllByText('₺0.00').length).toBe(2);
+    expect(screen.getByText('Match')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Match'));
+    expect(screen.getByText(/Amount: ₺0\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/Rate: ₺0\.00/)).toBeInTheDocument();
   });
 });

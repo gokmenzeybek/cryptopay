@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
+import ConfirmDialog from './ConfirmDialog';
+import { ListIcon } from './icons';
 import theme from '../theme';
 
 const OrderBookContainer = styled.div`
@@ -180,6 +182,7 @@ const OrderBook = ({
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
+  const [matchCandidate, setMatchCandidate] = useState(null);
 
   const filters = [
     { id: 'all', label: 'All Orders' },
@@ -233,17 +236,7 @@ const OrderBook = ({
   const handleMatchOrder = (order, e) => {
     e.stopPropagation();
     if (onOrderMatch) {
-      const confirmed = window.confirm(
-        `Match with this ${order.type} order?\n\n` +
-        `Amount: ${order.tryAmount} TRY for ${order.xrpAmount} XRP\n` +
-        `Rate: ${order.rate} TRY/XRP\n` +
-        `Payment Methods: ${order.paymentMethods.join(', ')}\n\n` +
-        `After matching, you'll be taken to the payment screen.`
-      );
-
-      if (confirmed) {
-        onOrderMatch(order.id);
-      }
+      setMatchCandidate(order);
     }
   };
 
@@ -274,7 +267,9 @@ const OrderBook = ({
     return (
       <OrderBookContainer>
         <EmptyState>
-          <div style={{ fontSize: '2rem', marginBottom: '10px' }}>📋</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px', color: theme.color.inkFaint }}>
+            <ListIcon width={28} height={28} />
+          </div>
           <div>No orders found</div>
           <div style={{ fontSize: '0.9rem', marginTop: '5px', color: theme.color.inkFaint }}>
             {isMyOrders ? 'You haven\'t created any orders yet' : 'No orders available in the market'}
@@ -285,70 +280,90 @@ const OrderBook = ({
   }
 
   return (
-    <OrderBookContainer>
-      <FilterContainer>
-        {filters.map(filterOption => (
-          <FilterButton
-            key={filterOption.id}
-            active={filter === filterOption.id}
-            onClick={() => setFilter(filterOption.id)}
-          >
-            {filterOption.label}
-          </FilterButton>
-        ))}
-      </FilterContainer>
+    <>
+      <OrderBookContainer>
+        <FilterContainer>
+          {filters.map(filterOption => (
+            <FilterButton
+              key={filterOption.id}
+              active={filter === filterOption.id}
+              onClick={() => setFilter(filterOption.id)}
+            >
+              {filterOption.label}
+            </FilterButton>
+          ))}
+        </FilterContainer>
 
-      <OrderBookHeader>
-        <div>Type</div>
-        <div>Status</div>
-        <div>Amount (TRY)</div>
-        <div>Rate</div>
-        <div>Payment Methods</div>
-        <div>Actions</div>
-      </OrderBookHeader>
+        <OrderBookHeader>
+          <div>Type</div>
+          <div>Status</div>
+          <div>Amount (TRY)</div>
+          <div>Rate</div>
+          <div>Payment Methods</div>
+          <div>Actions</div>
+        </OrderBookHeader>
 
-      <OrderBookBody>
-        {sortedOrders.map((order, index) => (
-          <OrderRow key={order.id || index} onClick={() => handleOrderClick(order)}>
-            <div>
-              <OrderType type={order.type}>
-                {order.type}
-              </OrderType>
-            </div>
-            <div>
-              <OrderStatus status={order.status}>
-                {order.status.replace('_', ' ')}
-              </OrderStatus>
-            </div>
-            <div>
-              <Amount>₺{(parseFloat(order.tryAmount) || 0).toFixed(2)}</Amount>
-            </div>
-            <div>
-              <Rate>₺{(parseFloat(order.rate) || 0).toFixed(2)}</Rate>
-            </div>
-            <div>
-              <PaymentMethods>
-                {formatPaymentMethods(order.paymentMethods).map((method, idx) => (
-                  <PaymentMethodTag key={idx}>{method}</PaymentMethodTag>
-                ))}
-              </PaymentMethods>
-            </div>
-            <div>
-              {canMatchOrder(order) && (
-                <ActionButton onClick={(e) => handleMatchOrder(order, e)}>
-                  Match
-                </ActionButton>
-              )}
-              {order.status === 'matched' && (
-                <ActionButton onClick={() => handleOrderClick(order)}>
-                  View
-                </ActionButton>
-              )}
-            </div>
-          </OrderRow>
-        ))}
-      </OrderBookBody>
-    </OrderBookContainer>
+        <OrderBookBody>
+          {sortedOrders.map((order, index) => (
+            <OrderRow key={order.id || index} onClick={() => handleOrderClick(order)}>
+              <div>
+                <OrderType type={order.type}>
+                  {order.type}
+                </OrderType>
+              </div>
+              <div>
+                <OrderStatus status={order.status}>
+                  {order.status.replace('_', ' ')}
+                </OrderStatus>
+              </div>
+              <div>
+                <Amount>₺{(parseFloat(order.tryAmount) || 0).toFixed(2)}</Amount>
+              </div>
+              <div>
+                <Rate>₺{(parseFloat(order.rate) || 0).toFixed(2)}</Rate>
+              </div>
+              <div>
+                <PaymentMethods>
+                  {formatPaymentMethods(order.paymentMethods).map((method, idx) => (
+                    <PaymentMethodTag key={idx}>{method}</PaymentMethodTag>
+                  ))}
+                </PaymentMethods>
+              </div>
+              <div>
+                {canMatchOrder(order) && (
+                  <ActionButton onClick={(e) => handleMatchOrder(order, e)}>
+                    Match
+                  </ActionButton>
+                )}
+                {order.status === 'matched' && (
+                  <ActionButton onClick={() => handleOrderClick(order)}>
+                    View
+                  </ActionButton>
+                )}
+              </div>
+            </OrderRow>
+          ))}
+        </OrderBookBody>
+      </OrderBookContainer>
+
+      {matchCandidate && (
+        <ConfirmDialog
+          title={`Match this ${matchCandidate.type} order?`}
+          description={
+            `Amount: ₺${(parseFloat(matchCandidate.tryAmount) || 0).toFixed(2)} for ${matchCandidate.xrpAmount} XRP\n` +
+            `Rate: ₺${(parseFloat(matchCandidate.rate) || 0).toFixed(2)} TRY/XRP\n` +
+            `Payment methods: ${formatPaymentMethods(matchCandidate.paymentMethods).join(', ')}\n\n` +
+            `After matching, you'll be taken to the payment screen.`
+          }
+          confirmLabel="Match order"
+          onSubmit={() => {
+            onOrderMatch(matchCandidate.id);
+            setMatchCandidate(null);
+          }}
+          onCancel={() => setMatchCandidate(null)}
+        />
+      )}
+    </>
   );
 };
 

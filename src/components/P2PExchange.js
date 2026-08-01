@@ -138,10 +138,10 @@ const P2PExchange = () => {
   const [userAddress, setUserAddress] = useState('');
 
   const tabs = [
-    { id: 'market', label: '📊 Market', icon: '📊' },
-    { id: 'orders', label: '📋 Orders', icon: '📋' },
-    { id: 'my-orders', label: '👤 My Orders', icon: '👤' },
-    { id: 'create', label: '➕ Create Order', icon: '➕' }
+    { id: 'market', label: 'Market' },
+    { id: 'orders', label: 'Orders' },
+    { id: 'my-orders', label: 'My Orders' },
+    { id: 'create', label: 'Create Order' }
   ];
 
   const fetchP2PStats = async () => {
@@ -383,7 +383,7 @@ const P2PExchange = () => {
   return (
     <P2PContainer>
       <Title>
-        💱 P2P TRY-XRP Exchange
+        P2P TRY-XRP Exchange
         <button
           onClick={refreshData}
           disabled={loading}

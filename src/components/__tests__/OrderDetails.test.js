@@ -53,13 +53,12 @@ const renderDetails = (order = baseOrder, hook = {}, props = {}) => {
   return callbacks;
 };
 
-beforeEach(() => {
+  beforeEach(() => {
   jest.resetAllMocks();
   authService.authFetch.mockResolvedValue({
     ok: true,
     json: () => Promise.resolve({ success: true })
   });
-  window.prompt = jest.fn().mockReturnValue(null);
 });
 
 describe('OrderDetails — rendering', () => {
@@ -144,8 +143,9 @@ describe('OrderDetails — actions by state', () => {
 describe('OrderDetails — cancel flow', () => {
   test('cancel calls the API and closes on success', async () => {
     const cbs = renderDetails();
+    fireEvent.click(screen.getByText('Cancel Order'));
     await act(async () => {
-      fireEvent.click(screen.getByText('Cancel Order'));
+      fireEvent.click(screen.getByText('Cancel order'));
     });
     expect(authService.authFetch).toHaveBeenCalledWith(
       'http://localhost:5001/api/p2p/cancel',
@@ -164,8 +164,9 @@ describe('OrderDetails — cancel flow', () => {
       json: () => Promise.resolve({ success: true, escrow: { status: 'cancel_pending' } })
     });
     renderDetails();
+    fireEvent.click(screen.getByText('Cancel Order'));
     await act(async () => {
-      fireEvent.click(screen.getByText('Cancel Order'));
+      fireEvent.click(screen.getByText('Cancel order'));
     });
     expect(toast.info).toHaveBeenCalledWith('Escrow status: cancel_pending');
   });
@@ -176,18 +177,20 @@ describe('OrderDetails — cancel flow', () => {
       json: () => Promise.resolve({ success: false, message: 'Escrow locked — open a dispute' })
     });
     renderDetails();
+    fireEvent.click(screen.getByText('Cancel Order'));
     await act(async () => {
-      fireEvent.click(screen.getByText('Cancel Order'));
+      fireEvent.click(screen.getByText('Cancel order'));
     });
     expect(toast.error).toHaveBeenCalledWith('Escrow locked — open a dispute');
     expect(toast.info).toHaveBeenCalledWith('You can raise a dispute from this order instead');
   });
 
-  test('uses the prompted cancellation reason', async () => {
-    window.prompt = jest.fn().mockReturnValue('changed my mind');
+  test('uses the entered cancellation reason', async () => {
     renderDetails();
+    fireEvent.click(screen.getByText('Cancel Order'));
+    fireEvent.change(screen.getByLabelText('Reason (optional)'), { target: { value: 'changed my mind' } });
     await act(async () => {
-      fireEvent.click(screen.getByText('Cancel Order'));
+      fireEvent.click(screen.getByText('Cancel order'));
     });
     expect(authService.authFetch.mock.calls[0][1].body).toContain('changed my mind');
   });

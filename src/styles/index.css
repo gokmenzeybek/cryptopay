@@ -7,7 +7,7 @@
 }
 
 body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: -apple-system, "SF Pro", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   background: #FAFAF7;
   min-height: 100vh;
   line-height: 1.6;
@@ -17,25 +17,28 @@ body {
   min-height: 100vh;
 }
 
-/* Toast notifications */
+/* Toast notifications — token-styled (UI_DESIGN §3/§4): flat washes, no gradients */
 .Toastify__toast {
-  border-radius: 10px;
+  border-radius: 12px;
+  font-family: -apple-system, "SF Pro", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-weight: 600;
+  box-shadow: none;
 }
 
 .Toastify__toast--success {
-  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  background: #E4F9EE;
+  color: #00A866;
 }
 
 .Toastify__toast--error {
-  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+  background: #FBEAEA;
+  color: #D44747;
 }
 
-.Toastify__toast--info {
-  background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
-}
-
+.Toastify__toast--info,
 .Toastify__toast--warning {
-  background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+  background: #F0EFEA;
+  color: #6B6B66;
 }
 
 /* Responsive design */
@@ -115,14 +118,6 @@ button {
   transition: all 0.3s ease;
 }
 
-button:hover {
-  transform: translateY(-1px);
-}
-
-button:active {
-  transform: translateY(0);
-}
-
 /* Card shadows */
 .card {
   box-shadow: 0 2px 10px rgba(0,0,0,0.1);
@@ -144,10 +139,10 @@ button:active {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #667eea;
+  background: #D8D7D0;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #5a6fd8;
+  background: #9C9C95;
 }

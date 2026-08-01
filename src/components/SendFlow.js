@@ -4,6 +4,7 @@ import styled from 'styled-components';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { useXRPL } from '../hooks/useXRPL';
 import ConfirmSheet from './ConfirmSheet';
+import { CameraIcon } from './icons';
 import theme from '../theme';
 
 /**
@@ -50,9 +51,12 @@ const RecipientInput = styled.input`
 const ScanButton = styled.button`
   border: none;
   background: transparent;
-  font-size: 18px;
   cursor: pointer;
   padding: 8px;
+  display: flex;
+  align-items: center;
+  color: ${theme.color.inkSoft};
+  &:hover { color: ${theme.color.ink}; }
 `;
 
 const ValidationLine = styled.div`
@@ -264,7 +268,9 @@ const SendFlow = () => {
           placeholder="Recipient address (r…)"
           autoComplete="off"
         />
-        <ScanButton onClick={() => setScanning(v => !v)} aria-label="Scan a QR code">📷</ScanButton>
+        <ScanButton onClick={() => setScanning(v => !v)} aria-label="Scan a QR code">
+          <CameraIcon width={20} height={20} />
+        </ScanButton>
       </RecipientRow>
       {showValidation && (
         <ValidationLine $ok={addressValid}>

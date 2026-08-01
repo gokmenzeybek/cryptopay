@@ -211,7 +211,7 @@ const Payment = () => {
 
   return (
     <PaymentContainer>
-      <Title>💸 Send Payment</Title>
+      <Title>Send Payment</Title>
       
       <form onSubmit={handleSendPayment}>
         <FormGroup>

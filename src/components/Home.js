@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useXRPL } from '../hooks/useXRPL';
 import AddFunds from './AddFunds';
+import { CameraIcon } from './icons';
 import theme from '../theme';
 
 /**
@@ -107,6 +108,9 @@ const ScanRow = styled.button`
   text-align: left;
   padding: 0 20px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 `;
 
 const SectionLabel = styled.div`
@@ -342,7 +346,10 @@ const Home = () => {
         </ActionTile>
       </ActionRow>
 
-      <ScanRow onClick={() => navigate('/pay?scan=1')}>📷&nbsp;&nbsp;Scan a QR to pay</ScanRow>
+      <ScanRow onClick={() => navigate('/pay?scan=1')}>
+        <CameraIcon width={18} height={18} />
+        <span>Scan a QR to pay</span>
+      </ScanRow>
 
       <SectionLabel>Activity</SectionLabel>
       {activity.length === 0 && (

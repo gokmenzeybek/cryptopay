@@ -175,6 +175,38 @@ const CloseButton = styled.button`
   margin-top: 16px;
 `;
 
+// Visually hidden keyboard/screen-reader equivalent of the slide gesture
+// (UI_DESIGN §5.3: slide-to-confirm "not a button"). Expands to a real
+// button only while keyboard-focused.
+const SrOnly = styled.button`
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  font-family: ${theme.font.stack};
+  cursor: pointer;
+  &:focus-visible {
+    position: static;
+    width: 100%;
+    height: 56px;
+    margin-top: 16px;
+    clip: auto;
+    clip-path: none;
+    border: none;
+    border-radius: ${theme.radius.pill};
+    background: ${theme.color.ink};
+    color: ${theme.color.paper};
+    font-size: 16px;
+    font-weight: 600;
+  }
+`;
+
 const truncate = (addr) => addr && addr.length > 14 ? `${addr.slice(0, 6)}…${addr.slice(-3)}` : addr;
 
 const ConfirmSheet = ({ recipient, amountXrp, memo, requestId, requestNote, tryRate, onClose, onDone }) => {
@@ -219,7 +251,6 @@ const ConfirmSheet = ({ recipient, amountXrp, memo, requestId, requestNote, tryR
       }
       if (onDone) onDone(payment);
     } catch (err) {
-      toast.error(err.message);
       setPhase('error');
     }
   };
@@ -295,9 +326,9 @@ const ConfirmSheet = ({ recipient, amountXrp, memo, requestId, requestNote, tryR
               <SlideLabel>slide to send</SlideLabel>
             </SlideTrack>
             {/* Keyboard / screen-reader equivalent of the slide gesture */}
-            <CloseButton onClick={execute} aria-label="Confirm and send payment">
+            <SrOnly onClick={execute} aria-label="Confirm and send payment">
               Confirm and send
-            </CloseButton>
+            </SrOnly>
           </>
         )}
 
