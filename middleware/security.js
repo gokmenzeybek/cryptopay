@@ -10,6 +10,12 @@ const { body, param, query, validationResult } = require('express-validator');
 /**
  * Security headers configuration
  */
+// Extra connect-src hosts for split FE/BE deploys (comma-separated env).
+const extraConnectSrc = (process.env.CSP_CONNECT_SRC || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 const securityHeaders = helmet({
   contentSecurityPolicy: {
     directives: {
@@ -28,7 +34,8 @@ const securityHeaders = helmet({
         "https://faucet.altnet.rippletest.net",
         "https://faucet.devnet.rippletest.net",
         // zxing-wasm barcode reader fetched at runtime by the QR scanner
-        "https://fastly.jsdelivr.net"
+        "https://fastly.jsdelivr.net",
+        ...extraConnectSrc
       ],
       objectSrc: ["'none'"],
       // Disabled explicitly (helmet's default CSP enables it): the app is
@@ -43,6 +50,8 @@ const securityHeaders = helmet({
     includeSubDomains: true,
     preload: true
   },
+  // Allow cross-origin browser reads when FE (Vercel) and BE (Render) are split.
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
   noSniff: true,
   xssFilter: true,
   referrerPolicy: { policy: "strict-origin-when-cross-origin" }
@@ -78,7 +87,7 @@ const corsOptions = {
   },
   credentials: true,
   optionsSuccessStatus: 204,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 };
 

@@ -184,7 +184,7 @@ const Dashboard = () => {
       const response = await fetch(`${apiBaseUrl}/api/payment_requests?limit=10`);
       const data = await response.json();
       if (data.success) {
-        setPaymentRequests(data.payment_requests || []);
+        setPaymentRequests(data.paymentRequests || data.payment_requests || []);
       }
     } catch (error) {
       console.error('Error fetching payment requests:', error);

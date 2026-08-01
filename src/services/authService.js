@@ -17,8 +17,6 @@
 // the backend) and is fully isomorphic (no Node builtins). It is require()d
 // lazily inside signMessageHex so environments without TextEncoder (jsdom)
 // only load it when the fallback is actually exercised.
-const DEFAULT_API_BASE = `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:5001`;
-
 const TOKEN_STORAGE_KEY = 'cryptopay_jwt';
 
 /**
@@ -32,8 +30,20 @@ function utf8ToHex(str) {
     .toUpperCase();
 }
 
+/**
+ * API base URL resolution (must match useXRPL):
+ * 1. REACT_APP_API_URL (build-time, Vercel/Render)
+ * 2. window.location.origin (same-origin when Express serves the SPA)
+ * 3. localhost:5001 (local dev / tests without a window origin)
+ */
 function apiBase() {
-  return (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL) || DEFAULT_API_BASE;
+  if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL.replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return window.location.origin;
+  }
+  return 'http://localhost:5001';
 }
 
 /**
