@@ -92,6 +92,19 @@ export const XRPLProvider = ({ children }) => {
   useEffect(() => {
     if (process.env.REACT_APP_API_URL) {
       setApiBaseUrl(process.env.REACT_APP_API_URL);
+      authService.setBaseUrl(process.env.REACT_APP_API_URL);
+      return;
+    }
+    const origin = window.location.origin;
+    setApiBaseUrl(origin);
+    authService.setBaseUrl(origin);
+  }, []);
+  // origin as the page otherwise — the API always serves the frontend, so
+  // window.location.origin is correct for localhost AND LAN access and never
+  // violates CSP 'self' (the old 127.0.0.1 hardcoding broke localhost pages).
+  useEffect(() => {
+    if (process.env.REACT_APP_API_URL) {
+      setApiBaseUrl(process.env.REACT_APP_API_URL);
       return;
     }
     setApiBaseUrl(window.location.origin);

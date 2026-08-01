@@ -27,3 +27,5 @@ certs/
 # Backup / scratch
 *.backup
 server.js.backup
+.vercel
+.env*

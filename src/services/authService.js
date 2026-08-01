@@ -68,6 +68,15 @@ class AuthService {
   constructor() {
     this.token = null;
     this.onSessionExpired = null; // optional callback set by the app (re-login trigger)
+    this.baseUrl = null;          // runtime override set by XRPLProvider (PRD 4.1.3)
+  }
+
+  /**
+   * Override the API base URL at runtime (e.g. from XRPLProvider).
+   * When unset, apiBase() falls back to build-time env / window.location.
+   */
+  setBaseUrl(url) {
+    this.baseUrl = url ? url.replace(/\/$/, '') : null;
   }
 
   /**
@@ -78,7 +87,9 @@ class AuthService {
       throw new Error('A wallet with address, publicKey and privateKey is required to log in');
     }
 
-    const challengeRes = await fetch(`${apiBase()}/api/auth/challenge`, {
+    const base = this.baseUrl || apiBase();
+
+    const challengeRes = await fetch(`${base}/api/auth/challenge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ address: wallet.address })
@@ -92,7 +103,7 @@ class AuthService {
     const messageHex = utf8ToHex(message);
     const signature = signMessageHex(messageHex, wallet.privateKey);
 
-    const verifyRes = await fetch(`${apiBase()}/api/auth/verify`, {
+    const verifyRes = await fetch(`${base}/api/auth/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
