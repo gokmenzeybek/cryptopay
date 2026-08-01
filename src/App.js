@@ -4,6 +4,7 @@ import styled from 'styled-components';
 import Header from './components/Header';
 import TabBar from './components/TabBar';
 import Home from './components/Home';
+import Activity from './components/Activity';
 import SendFlow from './components/SendFlow';
 import Wallet from './components/Wallet';
 import RequestFlow from './components/RequestFlow';
@@ -42,6 +43,7 @@ function App() {
           <Content>
             <Routes>
               <Route path="/" element={<Home />} />
+              <Route path="/activity" element={<Activity />} />
               <Route path="/pay" element={<SendFlow />} />
               <Route path="/request" element={<RequestFlow />} />
               <Route path="/p2p" element={<P2PExchange />} />

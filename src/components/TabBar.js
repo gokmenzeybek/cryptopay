@@ -6,8 +6,8 @@ import theme from '../theme';
 /**
  * TabBar — floating bottom pill navigation (UI_DESIGN §5.1).
  * Matches the mockup: four items (Home · Activity · Convert · Settings),
- * active = ink/600, inactive = inkSoft. Home and Activity both land on the
- * Home screen, which carries the money view and the receipt-style activity.
+ * active = ink/600, inactive = inkSoft. Activity is its own destination
+ * (/activity), so the Home and Activity tabs highlight independently.
  */
 const Bar = styled.nav`
   position: fixed;
@@ -46,7 +46,7 @@ const Tab = styled(NavLink)`
 
 const tabs = [
   { to: '/', label: 'Home' },
-  { to: '/', label: 'Activity' },
+  { to: '/activity', label: 'Activity' },
   { to: '/p2p', label: 'Convert' },
   { to: '/settings', label: 'Settings' }
 ];
