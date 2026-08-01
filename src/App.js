@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import styled from 'styled-components';
 import Header from './components/Header';
+import TabBar from './components/TabBar';
 import Home from './components/Home';
 import SendFlow from './components/SendFlow';
 import Wallet from './components/Wallet';
@@ -29,7 +30,7 @@ const MainContent = styled.div`
 `;
 
 const Content = styled.div`
-  padding: 24px 8px 48px;
+  padding: 1.5rem 0.5rem 6rem;
 `;
 
 function App() {
@@ -51,6 +52,7 @@ function App() {
               <Route path="/dashboard" element={<Dashboard />} />
             </Routes>
           </Content>
+          <TabBar />
           <SpeedInsights />
         </MainContent>
       </AppContainer>

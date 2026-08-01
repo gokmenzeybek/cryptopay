@@ -14,29 +14,19 @@ const renderAt = (path) =>
   );
 
 describe('Header', () => {
-  test('renders the wordmark and essential consumer nav links', () => {
+  test('renders the wordmark and the settings gear', () => {
     renderAt('/');
     expect(screen.getByText('cryptopay')).toBeInTheDocument();
-    for (const label of ['Home', 'Send', 'Request', 'Convert', 'Wallet']) {
-      expect(screen.getByText(label)).toBeInTheDocument();
-    }
+    expect(screen.getByLabelText('Settings')).toBeInTheDocument();
   });
 
-  test('marks the current route as active', () => {
-    renderAt('/settings');
-    expect(screen.getByText('Wallet').className).toContain('active');
-    expect(screen.getByText('Home').className).not.toContain('active');
-  });
-
-  test('marks Send active on /pay', () => {
-    renderAt('/pay');
-    expect(screen.getByText('Send').className).toContain('active');
-  });
-
-  test('links point at the right routes', () => {
+  test('settings gear links to /settings', () => {
     renderAt('/');
-    expect(screen.getByText('Request').closest('a')).toHaveAttribute('href', '/request');
-    expect(screen.getByText('Convert').closest('a')).toHaveAttribute('href', '/p2p');
-    expect(screen.getByText('Wallet').closest('a')).toHaveAttribute('href', '/settings');
+    expect(screen.getByLabelText('Settings').closest('a')).toHaveAttribute('href', '/settings');
+  });
+
+  test('wordmark links to /', () => {
+    renderAt('/settings');
+    expect(screen.getByText('cryptopay').closest('a')).toHaveAttribute('href', '/');
   });
 });
