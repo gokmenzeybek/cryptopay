@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-toastify';
 import authService from '../services/authService';
-import { saveWalletEncrypted, loadWalletEncrypted, hasStoredWallet, getStoredWalletAddress } from '../services/walletStorage';
+import { saveWalletEncrypted, loadWalletEncrypted, hasStoredWallet, getStoredWalletAddress, clearStoredWallet } from '../services/walletStorage';
 import UnlockModal from '../components/UnlockModal';
 
 const XRPLContext = createContext();
@@ -242,6 +242,10 @@ export const XRPLProvider = ({ children }) => {
   // Load existing wallet — restores from client-side ENCRYPTED storage only.
   // Seeds are never fetched from the server (the API stores only
   // address + publicKey). The user unlocks with their password (PRD 4.3.1).
+  // Two-tier users: ONLY seller and admin wallets are recoverable. A stored
+  // wallet whose DB role is 'buyer' (or that is unregistered server-side) is
+  // refused and removed from the device, because buyers are meant to use
+  // temporary burner wallets that are never persisted.
   const loadExistingWallet = async () => {
     try {
       if (!hasStoredWallet()) {
@@ -261,6 +265,24 @@ export const XRPLProvider = ({ children }) => {
       const { seed } = await loadWalletEncrypted(password);
       const newWallet = window.xrpl.Wallet.fromSeed(seed);
       setWallet(newWallet);
+
+      // Establish a session so the role lookup below is authenticated.
+      await autoLogin(newWallet);
+
+      const role = await fetchWalletRole(newWallet.address);
+      if (role !== 'seller' && role !== 'admin') {
+        // Reset the half-restored session so the UI returns to the guest setup flow.
+        setWallet(null);
+        // Only purge when the role is positively confirmed as non-recoverable.
+        // If the API URL isn't ready yet (first-run auto-init) or the wallet is
+        // unregistered server-side, refuse without deleting the user's record.
+        if (apiBaseUrl) {
+          clearStoredWallet();
+          toast.error('Only seller and admin wallets are recoverable. This wallet is a buyer wallet, so it was removed from this device — use the guest buyer flow instead.');
+        }
+        return false;
+      }
+
       setSessionType('seller');
 
       if (client) {
@@ -268,12 +290,29 @@ export const XRPLProvider = ({ children }) => {
         setBalance(walletBalance);
       }
 
-      await autoLogin(newWallet);
       return true;
     } catch (error) {
       console.warn('Error unlocking stored wallet:', error.message);
       toast.error(`Could not unlock wallet: ${error.message}`);
       return false;
+    }
+  };
+
+  // Fetch the authenticated wallet's role from the server ('buyer' | 'seller' | 'admin').
+  // Returns null when the wallet is not registered or the lookup fails — the
+  // caller treats null as a non-recoverable (buyer) wallet.
+  const fetchWalletRole = async (address) => {
+    try {
+      if (!apiBaseUrl) return null;
+      const res = await authService.authFetch(`${apiBaseUrl}/api/wallets`);
+      const data = await res.json();
+      if (data && data.success && Array.isArray(data.wallets) && data.wallets[0]) {
+        return data.wallets[0].role || 'buyer';
+      }
+      return null;
+    } catch (error) {
+      console.warn('Failed to look up wallet role:', error.message);
+      return null;
     }
   };
 
@@ -477,6 +516,9 @@ export const XRPLProvider = ({ children }) => {
   // Initialize
   useEffect(() => {
     const initialize = async () => {
+      // apiBaseUrl is set asynchronously on mount; skip the first empty run so
+      // the role-gated restore only happens once a real base URL is available.
+      if (!apiBaseUrl) return;
       const connected = await connectToXRPL();
       if (connected) {
         await loadExistingWallet();

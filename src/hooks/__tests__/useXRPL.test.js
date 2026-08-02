@@ -20,7 +20,8 @@ import {
   saveWalletEncrypted,
   loadWalletEncrypted,
   hasStoredWallet,
-  getStoredWalletAddress
+  getStoredWalletAddress,
+  clearStoredWallet
 } from '../../services/walletStorage';
 
 jest.mock('react-toastify', () => ({
@@ -31,7 +32,7 @@ jest.mock('../../services/authService', () => ({
   __esModule: true,
   default: {
     login: jest.fn().mockResolvedValue({ token: 't' }),
-    authFetch: jest.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true }) }),
+    authFetch: jest.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, wallets: [{ role: 'seller' }] }) }),
     getToken: jest.fn().mockReturnValue('t'),
     logout: jest.fn(),
     setBaseUrl: jest.fn()
@@ -42,7 +43,8 @@ jest.mock('../../services/walletStorage', () => ({
   saveWalletEncrypted: jest.fn().mockResolvedValue(),
   loadWalletEncrypted: jest.fn(),
   hasStoredWallet: jest.fn().mockReturnValue(false),
-  getStoredWalletAddress: jest.fn().mockReturnValue(null)
+  getStoredWalletAddress: jest.fn().mockReturnValue(null),
+  clearStoredWallet: jest.fn()
 }));
 
 const wrapper = ({ children }) => <XRPLProvider>{children}</XRPLProvider>;
@@ -317,6 +319,76 @@ describe('useXRPL hook (current contract)', () => {
 
       expect(loaded).toBe(true);
       expect(result.current.wallet).toBe(mockWallet);
+    });
+
+    it('refuses to restore a buyer-role wallet and clears it from the device', async () => {
+      hasStoredWallet.mockReturnValue(true);
+      getStoredWalletAddress.mockReturnValue(mockWallet.address);
+      loadWalletEncrypted.mockResolvedValue({ seed: mockWallet.seed });
+      authService.authFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, wallets: [{ role: 'buyer' }] })
+      });
+      window.prompt = jest.fn().mockReturnValue('wallet-pw');
+      installXrpl(makeClient());
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      let loaded;
+      await act(async () => {
+        loaded = await result.current.loadExistingWallet();
+      });
+
+      expect(loaded).toBe(false);
+      expect(clearStoredWallet).toHaveBeenCalled();
+      expect(result.current.wallet).toBeNull();
+      expect(result.current.sessionType).toBeNull();
+      expect(toast.error).toHaveBeenCalledWith(
+        expect.stringContaining('Only seller and admin wallets are recoverable')
+      );
+    });
+
+    it('refuses to restore when the wallet role cannot be confirmed', async () => {
+      hasStoredWallet.mockReturnValue(true);
+      getStoredWalletAddress.mockReturnValue(mockWallet.address);
+      loadWalletEncrypted.mockResolvedValue({ seed: mockWallet.seed });
+      authService.authFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, wallets: [] })
+      });
+      window.prompt = jest.fn().mockReturnValue('wallet-pw');
+      installXrpl(makeClient());
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      let loaded;
+      await act(async () => {
+        loaded = await result.current.loadExistingWallet();
+      });
+
+      expect(loaded).toBe(false);
+      expect(clearStoredWallet).toHaveBeenCalled();
+      expect(result.current.wallet).toBeNull();
+    });
+
+    it('restores an admin-role wallet', async () => {
+      hasStoredWallet.mockReturnValue(true);
+      getStoredWalletAddress.mockReturnValue(mockWallet.address);
+      loadWalletEncrypted.mockResolvedValue({ seed: mockWallet.seed });
+      authService.authFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, wallets: [{ role: 'admin' }] })
+      });
+      window.prompt = jest.fn().mockReturnValue('wallet-pw');
+      installXrpl(makeClient());
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      let loaded;
+      await act(async () => {
+        loaded = await result.current.loadExistingWallet();
+      });
+
+      expect(loaded).toBe(true);
+      expect(result.current.sessionType).toBe('seller');
+      expect(clearStoredWallet).not.toHaveBeenCalled();
     });
   });
 
