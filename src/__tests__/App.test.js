@@ -8,13 +8,14 @@ import App from '../App';
 
 jest.mock('../hooks/useXRPL', () => ({
   XRPLProvider: ({ children }) => <>{children}</>,
-  useXRPL: () => ({ wallet: null, apiBaseUrl: null })
+  useXRPL: () => ({ wallet: null, apiBaseUrl: null, role: 'admin', isPrivileged: true })
 }));
 
 jest.mock('../components/Home', () => () => <div>home-page</div>);
 jest.mock('../components/SendFlow', () => () => <div>send-page</div>);
 jest.mock('../components/RequestFlow', () => () => <div>request-page</div>);
 jest.mock('../components/P2PExchange', () => () => <div>p2p-page</div>);
+jest.mock('../components/AdminConsole', () => () => <div>admin-page</div>);
 jest.mock('../components/Wallet', () => () => <div>settings-page</div>);
 jest.mock('../components/Dashboard', () => () => <div>dashboard-page</div>);
 
@@ -36,6 +37,7 @@ describe('App routing', () => {
     ['/pay', 'send-page'],
     ['/request', 'request-page'],
     ['/p2p', 'p2p-page'],
+    ['/admin', 'admin-page'],
     ['/settings', 'settings-page'],
     ['/dashboard', 'dashboard-page']
   ])('route %s renders %s', (path, marker) => {

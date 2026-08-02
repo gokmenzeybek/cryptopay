@@ -1,13 +1,13 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import styled from 'styled-components';
+import { useXRPL } from '../hooks/useXRPL';
 import theme from '../theme';
 
 /**
  * TabBar — floating bottom pill navigation (UI_DESIGN §5.1).
- * Matches the mockup: four items (Home · Activity · Convert · Settings),
- * active = ink/600, inactive = inkSoft. Activity is its own destination
- * (/activity), so the Home and Activity tabs highlight independently.
+ * Home · Activity · Settings are common to every role; Convert appears only
+ * for privileged devices (seller/owner), and Admin only for owners.
  */
 const Bar = styled.nav`
   position: fixed;
@@ -44,21 +44,29 @@ const Tab = styled(NavLink)`
   }
 `;
 
-const tabs = [
+const baseTabs = [
   { to: '/', label: 'Home' },
   { to: '/activity', label: 'Activity' },
-  { to: '/p2p', label: 'Convert' },
   { to: '/settings', label: 'Settings' }
 ];
 
-const TabBar = () => (
-  <Bar>
-    {tabs.map(tab => (
-      <Tab key={tab.label} to={tab.to} end>
-        {tab.label}
-      </Tab>
-    ))}
-  </Bar>
-);
+const TabBar = () => {
+  const { role, isPrivileged } = useXRPL();
+  const tabs = [
+    ...baseTabs,
+    ...(isPrivileged ? [{ to: '/p2p', label: 'Convert' }] : []),
+    ...(role === 'admin' ? [{ to: '/admin', label: 'Admin' }] : [])
+  ];
+
+  return (
+    <Bar>
+      {tabs.map(tab => (
+        <Tab key={tab.to} to={tab.to} end>
+          {tab.label}
+        </Tab>
+      ))}
+    </Bar>
+  );
+};
 
 export default TabBar;

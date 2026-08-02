@@ -45,6 +45,10 @@ export const XRPLProvider = ({ children }) => {
   // Two-tier users: 'seller' = persistent wallet (verified sellers), 'buyer' =
   // temporary guest burner session. Null until a wallet is created/loaded.
   const [sessionType, setSessionType] = useState(null);
+  // DB role for the authenticated wallet ('buyer' | 'seller' | 'admin'), or
+  // null for guest burner sessions / before a wallet is loaded. Drives the
+  // role-adaptive UI (Header badge, TabBar, route guards, order form).
+  const [role, setRole] = useState(null);
 
   // Password bridge (M1): askPassword() opens UnlockModal and resolves with
   // the entered password (or null on cancel). In tests there is no modal
@@ -212,6 +216,10 @@ export const XRPLProvider = ({ children }) => {
       // Sync to API (address + publicKey only — seeds never leave the device)
       await syncWalletToAPI(walletData);
 
+      // Fetch the DB role now that the wallet is registered (defaults to
+      // 'buyer' server-side; admins promote via the moderator API / SQL).
+      await fetchWalletRole(newWallet.address);
+
       // Persist client-side, AES-GCM encrypted with a user password (PRD 4.3.1)
       const walletPassword = await askPassword({
         title: 'Set a wallet password',
@@ -273,6 +281,7 @@ export const XRPLProvider = ({ children }) => {
       if (role !== 'seller' && role !== 'admin') {
         // Reset the half-restored session so the UI returns to the guest setup flow.
         setWallet(null);
+        setRole(null);
         // Only purge when the role is positively confirmed as non-recoverable.
         // If the API URL isn't ready yet (first-run auto-init) or the wallet is
         // unregistered server-side, refuse without deleting the user's record.
@@ -289,7 +298,6 @@ export const XRPLProvider = ({ children }) => {
         const walletBalance = await client.getXrpBalance(newWallet.address);
         setBalance(walletBalance);
       }
-
       return true;
     } catch (error) {
       console.warn('Error unlocking stored wallet:', error.message);
@@ -300,18 +308,23 @@ export const XRPLProvider = ({ children }) => {
 
   // Fetch the authenticated wallet's role from the server ('buyer' | 'seller' | 'admin').
   // Returns null when the wallet is not registered or the lookup fails — the
-  // caller treats null as a non-recoverable (buyer) wallet.
+  // caller treats null as a non-recoverable (buyer) wallet. Also syncs the
+  // role state that drives the role-adaptive UI.
   const fetchWalletRole = async (address) => {
     try {
       if (!apiBaseUrl) return null;
       const res = await authService.authFetch(`${apiBaseUrl}/api/wallets`);
       const data = await res.json();
       if (data && data.success && Array.isArray(data.wallets) && data.wallets[0]) {
-        return data.wallets[0].role || 'buyer';
+        const walletRole = data.wallets[0].role || 'buyer';
+        setRole(walletRole);
+        return walletRole;
       }
+      setRole(null);
       return null;
     } catch (error) {
       console.warn('Failed to look up wallet role:', error.message);
+      setRole(null);
       return null;
     }
   };
@@ -356,6 +369,7 @@ export const XRPLProvider = ({ children }) => {
       setWallet(burnerWallet);
       setBalance('0'); // reserve is sponsored, not spendable
       setSessionType('buyer');
+      setRole(null); // guest burners have no DB role
 
       // Use the short-lived guest JWT the server issued directly.
       authService.setBaseUrl(apiBaseUrl);
@@ -544,6 +558,8 @@ export const XRPLProvider = ({ children }) => {
     createBurnerWallet,
     loadExistingWallet,
     sessionType,
+    role,
+    isPrivileged: role === 'seller' || role === 'admin',
     refreshBalance,
     sendPayment,
     waitForValidation,

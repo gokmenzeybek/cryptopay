@@ -16,7 +16,10 @@ jest.mock('../../services/authService', () => ({
 const ADDR = 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh';
 
 const renderForm = (props = {}) => {
-  useXRPL.mockReturnValue({ apiBaseUrl: 'http://localhost:5001' });
+  useXRPL.mockReturnValue({
+    apiBaseUrl: 'http://localhost:5001',
+    isPrivileged: props.isPrivileged || false
+  });
   const onOrderCreated = jest.fn();
   render(
     <OrderForm
@@ -128,8 +131,21 @@ describe('OrderForm', () => {
     expect(screen.getByText('boom')).toBeInTheDocument();
   });
 
-  test('rejects a bad XRPL address', async () => {
-    renderForm({ userAddress: 'short' });
+  test('buyer (non-privileged) sees only Buy order type', async () => {
+    renderForm();
+    await waitFor(() => screen.getByText('PAPARA'));
+    expect(screen.getByText('Buy XRP with TRY')).toBeInTheDocument();
+    expect(screen.queryByText('Sell XRP for TRY')).not.toBeInTheDocument();
+  });
+
+  test('seller/admin sees both Buy and Sell order types', async () => {
+    renderForm({ isPrivileged: true });
+    await waitFor(() => screen.getByText('PAPARA'));
+    expect(screen.getByText('Buy XRP with TRY')).toBeInTheDocument();
+    expect(screen.getByText('Sell XRP for TRY')).toBeInTheDocument();
+  });
+
+  test('rejects a bad XRPL address', async () => {    renderForm({ userAddress: 'short' });
     await waitFor(() => screen.getByText('PAPARA'));
     await act(async () => {
       fireEvent.submit(document.querySelector('form'));

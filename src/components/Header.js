@@ -59,13 +59,20 @@ const GuestBadge = styled.span`
   margin-left: 8px;
 `;
 
+const RoleBadge = styled(GuestBadge)`
+  background: ${p => p.$owner ? theme.color.ink : theme.color.signalWash};
+  color: ${p => p.$owner ? theme.color.paper : theme.color.signalDeep};
+`;
+
 const Header = () => {
-  const { sessionType } = useXRPL();
+  const { sessionType, role } = useXRPL();
   return (
     <HeaderContainer>
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <Wordmark to="/">cryptopay</Wordmark>
         {sessionType === 'buyer' && <GuestBadge>guest</GuestBadge>}
+        {role === 'admin' && <RoleBadge $owner>owner</RoleBadge>}
+        {role === 'seller' && <RoleBadge>operator</RoleBadge>}
       </div>
       <SettingsButton to="/settings" aria-label="Settings">⚙</SettingsButton>
     </HeaderContainer>

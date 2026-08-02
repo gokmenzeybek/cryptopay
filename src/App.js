@@ -10,6 +10,8 @@ import Wallet from './components/Wallet';
 import RequestFlow from './components/RequestFlow';
 import Dashboard from './components/Dashboard';
 import P2PExchange from './components/P2PExchange';
+import AdminConsole from './components/AdminConsole';
+import RequireRole from './components/RequireRole';
 import InlineNotice from './components/InlineNotice';
 import { XRPLProvider } from './hooks/useXRPL';
 import theme from './theme';
@@ -48,7 +50,8 @@ function App() {
               <Route path="/activity" element={<Activity />} />
               <Route path="/pay" element={<SendFlow />} />
               <Route path="/request" element={<RequestFlow />} />
-              <Route path="/p2p" element={<P2PExchange />} />
+              <Route path="/p2p" element={<RequireRole allowed="privileged"><P2PExchange /></RequireRole>} />
+              <Route path="/admin" element={<RequireRole allowed={['admin']}><AdminConsole /></RequireRole>} />
               <Route path="/settings" element={<Wallet />} />
               {/* Legacy routes kept as redirects (M1 navigation rework) */}
               <Route path="/payment" element={<Navigate to="/pay" replace />} />

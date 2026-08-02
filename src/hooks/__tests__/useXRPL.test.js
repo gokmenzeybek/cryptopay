@@ -31,7 +31,8 @@ jest.mock('../../services/authService', () => ({
     authFetch: jest.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, wallets: [{ role: 'seller' }] }) }),
     getToken: jest.fn().mockReturnValue('t'),
     logout: jest.fn(),
-    setBaseUrl: jest.fn()
+    setBaseUrl: jest.fn(),
+    setToken: jest.fn()
   }
 }));
 
@@ -279,6 +280,8 @@ describe('useXRPL hook (current contract)', () => {
       expect(window.xrpl.Wallet.fromSeed).toHaveBeenCalledWith(mockWallet.seed);
       expect(result.current.wallet).toBe(mockWallet);
       expect(authService.login).toHaveBeenCalledWith(mockWallet);
+      expect(result.current.role).toBe('seller');
+      expect(result.current.isPrivileged).toBe(true);
     });
 
     it('returns false when the password is wrong', async () => {
@@ -363,6 +366,8 @@ describe('useXRPL hook (current contract)', () => {
       expect(loaded).toBe(false);
       expect(clearStoredWallet).toHaveBeenCalled();
       expect(result.current.wallet).toBeNull();
+      expect(result.current.role).toBeNull();
+      expect(result.current.isPrivileged).toBe(false);
     });
 
     it('restores an admin-role wallet', async () => {
@@ -384,7 +389,71 @@ describe('useXRPL hook (current contract)', () => {
 
       expect(loaded).toBe(true);
       expect(result.current.sessionType).toBe('seller');
+      expect(result.current.role).toBe('admin');
+      expect(result.current.isPrivileged).toBe(true);
       expect(clearStoredWallet).not.toHaveBeenCalled();
+    });
+
+    it('treats a failed role lookup as non-recoverable and clears the device', async () => {
+      hasStoredWallet.mockReturnValue(true);
+      getStoredWalletAddress.mockReturnValue(mockWallet.address);
+      loadWalletEncrypted.mockResolvedValue({ seed: mockWallet.seed });
+      authService.authFetch.mockRejectedValue(new Error('network down'));
+      window.prompt = jest.fn().mockReturnValue('wallet-pw');
+      installXrpl(makeClient());
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      let loaded;
+      await act(async () => {
+        loaded = await result.current.loadExistingWallet();
+      });
+
+      expect(loaded).toBe(false);
+      expect(clearStoredWallet).toHaveBeenCalled();
+      expect(result.current.wallet).toBeNull();
+      expect(result.current.role).toBeNull();
+    });
+  });
+
+  describe('createBurnerWallet', () => {
+    it('creates a guest burner session with no DB role', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, seed: mockWallet.seed, token: 'guest-token' })
+      });
+      installXrpl(makeClient());
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      let burner;
+      await act(async () => {
+        burner = await result.current.createBurnerWallet();
+      });
+
+      expect(burner).toBe(mockWallet);
+      expect(result.current.sessionType).toBe('buyer');
+      expect(result.current.role).toBeNull();
+      expect(result.current.isPrivileged).toBe(false);
+      expect(authService.setToken).toHaveBeenCalledWith('guest-token');
+    });
+
+    it('throws and toasts when the burner endpoint fails', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({ success: false, message: 'sponsor not configured' })
+      });
+      installXrpl(makeClient());
+      const { result } = renderHook(() => useXRPL(), { wrapper });
+
+      let err;
+      await act(async () => {
+        err = await result.current.createBurnerWallet().catch((e) => e);
+      });
+
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toContain('sponsor not configured');
+      expect(notice.error).toHaveBeenCalledWith(
+        expect.stringContaining('temporary wallet')
+      );
     });
   });
 

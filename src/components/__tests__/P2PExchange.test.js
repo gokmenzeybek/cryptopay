@@ -54,7 +54,7 @@ const setupFetches = () => {
 };
 
 const renderExchange = async () => {
-  useXRPL.mockReturnValue({ apiBaseUrl: 'http://localhost:5001' });
+  useXRPL.mockReturnValue({ apiBaseUrl: 'http://localhost:5001', wallet: { address: 'rMineAddress' } });
   let utils;
   await act(async () => {
     utils = render(<P2PExchange />);
@@ -84,10 +84,6 @@ describe('P2PExchange', () => {
     expect(screen.getByRole('heading', { name: 'All Orders' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('My Orders'));
-    expect(screen.getByPlaceholderText('Enter your XRPL address')).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText('Enter your XRPL address'), {
-      target: { value: 'rMineAddress' }
-    });
     await waitFor(() => expect(screen.getByText('₺500.00')).toBeInTheDocument());
 
     fireEvent.click(screen.getByText('Create Order'));
@@ -113,11 +109,8 @@ describe('P2PExchange', () => {
       return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
     });
     await renderExchange();
-    // set my address and wait for empty my-orders fetch
+    // wait for empty my-orders fetch for the logged-in wallet address
     fireEvent.click(screen.getByText('My Orders'));
-    fireEvent.change(screen.getByPlaceholderText('Enter your XRPL address'), {
-      target: { value: 'rMine' }
-    });
     await act(async () => {});
     fireEvent.click(screen.getByText('Market'));
     await waitFor(() => screen.getByText('₺1000.00'));
@@ -131,9 +124,6 @@ describe('P2PExchange', () => {
   test('successful match shows success and opens matched order details', async () => {
     await renderExchange();
     fireEvent.click(screen.getByText('My Orders'));
-    fireEvent.change(screen.getByPlaceholderText('Enter your XRPL address'), {
-      target: { value: 'rMine' }
-    });
     await waitFor(() => expect(screen.getByText('₺500.00')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Market'));
     await waitFor(() => screen.getByText('₺1000.00'));
@@ -161,9 +151,6 @@ describe('P2PExchange', () => {
     });
     await renderExchange();
     fireEvent.click(screen.getByText('My Orders'));
-    fireEvent.change(screen.getByPlaceholderText('Enter your XRPL address'), {
-      target: { value: 'rMine' }
-    });
     await waitFor(() => expect(screen.getByText('₺500.00')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Market'));
     await waitFor(() => screen.getByText('₺1000.00'));

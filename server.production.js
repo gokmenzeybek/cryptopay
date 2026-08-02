@@ -686,8 +686,9 @@ app.post('/api/p2p/create-order',
     }
 
     // Two-tier users: only verified sellers may post sell orders. Buy orders
-    // remain open to any role (buyers trade from burner wallets).
-    if (type === 'sell' && req.user.role !== 'seller') {
+    // remain open to any role (buyers trade from burner wallets). Owners
+    // (admins) inherit seller privileges.
+    if (type === 'sell' && req.user.role !== 'seller' && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',

@@ -342,26 +342,6 @@ const P2PExchange = () => {
         return (
           <div>
             <h3>My Orders</h3>
-            <div style={{ marginBottom: '20px' }}>
-              <input
-                type="text"
-                placeholder="Enter your XRPL address"
-                value={userAddress}
-                onChange={(e) => setUserAddress(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  border: 'none',
-                  borderRadius: theme.radius.input,
-                  background: theme.color.surface,
-                  color: theme.color.ink,
-                  fontFamily: theme.font.stack,
-                  fontSize: '15px',
-                  marginBottom: '10px',
-                  outline: 'none'
-                }}
-              />
-            </div>
             <OrderBook
               orders={myOrders}
               onOrderSelect={setSelectedOrder}
