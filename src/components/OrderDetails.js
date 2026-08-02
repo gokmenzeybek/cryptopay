@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import styled from 'styled-components';
 import { notice } from '../services/notice';
 import PaymentConfirmation from './PaymentConfirmation';
@@ -627,4 +627,4 @@ const OrderDetails = ({
   );
 };
 
-export default OrderDetails;
+export default memo(OrderDetails);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import styled from 'styled-components';
 import { useXRPL } from '../hooks/useXRPL';
 import authService from '../services/authService';
@@ -720,4 +720,4 @@ const OrderForm = ({ currentRate, onOrderCreated, userAddress }) => {
   );
 };
 
-export default OrderForm;
+export default memo(OrderForm);

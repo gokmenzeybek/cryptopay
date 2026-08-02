@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import styled from 'styled-components';
 import ConfirmDialog from './ConfirmDialog';
 import { ListIcon } from './icons';
@@ -367,4 +367,4 @@ const OrderBook = ({
   );
 };
 
-export default OrderBook;
+export default memo(OrderBook);

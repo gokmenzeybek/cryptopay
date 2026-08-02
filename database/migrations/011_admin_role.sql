@@ -1,23 +1,33 @@
 -- Migration 011: Add admin role
--- Upgrades the role check constraint to include 'admin'
+-- Upgrades the role check constraint to include 'admin'.
+--
+-- Idempotent: drops ANY check constraint referencing wallets.role and re-adds
+-- the three-role constraint. PostgreSQL rewrites `x IN (...)` into
+-- `x = ANY (ARRAY[...])` internally, so matching the constraint by its
+-- definition text (`LIKE '%role IN%'`) is unreliable — it silently skipped the
+-- drop and the migration never applied. We match by column reference instead.
 
 DO $$
 DECLARE
-    role_constraint text;
+  con record;
 BEGIN
-    -- Find the auto-generated check constraint for the role column
-    SELECT conname INTO role_constraint
-    FROM pg_constraint
-    WHERE conrelid = 'wallets'::regclass 
-      AND contype = 'c' 
-      AND pg_get_constraintdef(oid) LIKE '%role IN%';
-
-    IF role_constraint IS NOT NULL THEN
-        EXECUTE 'ALTER TABLE wallets DROP CONSTRAINT ' || role_constraint;
+  FOR con IN
+    SELECT c.conname, c.conrelid, c.conkey
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    WHERE t.relname = 'wallets'
+      AND c.contype = 'c'
+  LOOP
+    IF con.conkey IS NOT NULL AND EXISTS (
+      SELECT 1 FROM unnest(con.conkey) AS pos(attnum_val)
+      JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = pos.attnum_val
+      WHERE a.attname = 'role'
+    ) THEN
+      EXECUTE 'ALTER TABLE wallets DROP CONSTRAINT IF EXISTS ' || quote_ident(con.conname);
     END IF;
+  END LOOP;
 END $$;
 
--- Add the updated constraint
 ALTER TABLE wallets ADD CONSTRAINT wallets_role_check CHECK (role IN ('buyer', 'seller', 'admin'));
 
 -- Insert circuit breaker setting

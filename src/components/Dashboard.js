@@ -213,7 +213,7 @@ const Dashboard = () => {
         fetchStats();
         fetchTransactions();
         fetchPaymentRequests();
-      }, 5000);
+      }, 15000);
       return () => clearInterval(timer);
     }
   }, [apiBaseUrl]);

@@ -115,7 +115,7 @@ const ActivityList = () => {
 
   useEffect(() => {
     fetchActivity();
-    const timer = setInterval(fetchActivity, 5000);
+    const timer = setInterval(fetchActivity, 15000);
     return () => clearInterval(timer);
   }, [fetchActivity]);
 

@@ -257,13 +257,21 @@ async function fetchAllRates(p2pOrders = []) {
 }
 
 /**
+ * Whether the in-memory rate cache is still within its TTL.
+ * Callers can skip expensive work (e.g. loading P2P orders) when this is true.
+ */
+function isRateCacheValid() {
+  return !!(rateCache.rate && rateCache.nextUpdate && Date.now() < rateCache.nextUpdate);
+}
+
+/**
  * Get current XRP/TRY rate (cached)
  */
 async function getCurrentRate(forceRefresh = false, p2pOrders = []) {
   const now = Date.now();
 
   // Return cached rate if valid
-  if (!forceRefresh && rateCache.rate && rateCache.nextUpdate && now < rateCache.nextUpdate) {
+  if (!forceRefresh && isRateCacheValid()) {
     return {
       rate: rateCache.rate,
       sources: rateCache.sources,
@@ -419,6 +427,7 @@ function getMarketStats(rateData) {
 
 module.exports = {
   getCurrentRate,
+  isRateCacheValid,
   calculateXRPFromTRY,
   calculateTRYFromXRP,
   getMarketStats,

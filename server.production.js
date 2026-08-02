@@ -45,6 +45,7 @@ const logger = require('./utils/logger');
 const tryRateScraperService = require('./services/tryRateScraperService');
 const p2pMatchingService = require('./services/p2pMatchingService');
 const xrplEscrowService = require('./services/xrplEscrowService');
+const xrplClientService = require('./services/xrplClientService');
 const burnerWalletService = require('./services/burnerWalletService');
 const { initWebSocketServer, broadcastOrderUpdate } = require('./services/websocketService');
 
@@ -153,13 +154,11 @@ if (process.env.COMPRESSION_ENABLED !== 'false') {
 // LOGGING MIDDLEWARE
 // ==============================================================================
 
-// HTTP request logging
+// HTTP request logging (both gated — double logging is expensive on free tier)
 if (process.env.LOG_REQUESTS !== 'false') {
   app.use(morgan('combined', { stream: logger.stream }));
+  app.use(requestLogger);
 }
-
-// Custom request logger
-app.use(requestLogger);
 
 // ==============================================================================
 // PARSING MIDDLEWARE
@@ -458,7 +457,9 @@ app.get('/api/p2p/rate',
   createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_EXCHANGE_RATES) || 60),
   catchAsync(async (req, res) => {
     const forceRefresh = req.query.refresh === 'true';
-    const currentOrders = await P2POrdersDAL.getAll(100);
+    // P2P orders are only used on a cache miss — skip the DB hit when cached.
+    const needsOrders = forceRefresh || !tryRateScraperService.isRateCacheValid();
+    const currentOrders = needsOrders ? await P2POrdersDAL.getAll(100) : [];
     const rateData = await tryRateScraperService.getCurrentRate(forceRefresh, currentOrders);
 
     logger.logP2P('rate_fetch', { forceRefresh, rateData });
@@ -1129,18 +1130,13 @@ app.post('/api/p2p/confirm-xrp',
       });
     }
 
-    // Confirm XRP transfer with on-chain verification
-    const client = new xrpl.Client(
-      process.env.XRPL_TESTNET_URL || 'wss://s.altnet.rippletest.net:51233'
-    );
-    await client.connect();
+    // Confirm XRP transfer with on-chain verification (shared client)
+    const client = await xrplClientService.getClient();
     try {
       await p2pMatchingService.confirmXrpTransfer(order, xrpTransactionHash, client);
     } catch (err) {
-      await client.disconnect();
       return domainError(res, err);
     }
-    await client.disconnect();
 
     // Update in database
     await P2POrdersDAL.update(businessId(order), order);
@@ -1551,10 +1547,7 @@ app.post('/api/p2p/submit-escrow-hash',
     }
 
     // Verify the EscrowCreate on-chain; only the seller (escrow owner) may submit
-    const client = new xrpl.Client(
-      process.env.XRPL_TESTNET_URL || 'wss://s.altnet.rippletest.net:51233'
-    );
-    await client.connect();
+    const client = await xrplClientService.getClient();
     try {
       await p2pMatchingService.lockEscrowForOrder(order, {
         txHash,
@@ -1562,7 +1555,6 @@ app.post('/api/p2p/submit-escrow-hash',
         callerAddress: req.user.address
       }, client);
     } catch (err) {
-      await client.disconnect();
       if (err.statusCode === 403) {
         return res.status(403).json({
           success: false,
@@ -1572,7 +1564,6 @@ app.post('/api/p2p/submit-escrow-hash',
       }
       return domainError(res, err);
     }
-    await client.disconnect();
 
     await P2POrdersDAL.updateEscrow(orderId, {
       escrow_status: xrplEscrowService.ESCROW_STATUS.LOCKED,
@@ -1614,17 +1605,13 @@ app.post('/api/p2p/confirm-escrow-completion',
     }
 
     // Verify the EscrowFinish/EscrowCancel on-chain before persisting the status
-    const client = new xrpl.Client(
-      process.env.XRPL_TESTNET_URL || 'wss://s.altnet.rippletest.net:51233'
-    );
-    await client.connect();
+    const client = await xrplClientService.getClient();
     let completion;
     try {
       completion = await p2pMatchingService.confirmEscrowCompletion(
         order, txHash, req.user.address, client
       );
     } catch (err) {
-      await client.disconnect();
       if (err.statusCode === 403) {
         return res.status(403).json({
           success: false,
@@ -1634,7 +1621,6 @@ app.post('/api/p2p/confirm-escrow-completion',
       }
       return domainError(res, err);
     }
-    await client.disconnect();
 
     await P2POrdersDAL.updateEscrow(orderId, {
       escrow_status: completion.escrowStatus,
@@ -2138,8 +2124,8 @@ app.get('/api/p2p/papara-payment-status/:orderId',
 app.get('/api/p2p/stats',
   createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_READ) || 10),
   catchAsync(async (req, res) => {
-    const allOrders = await P2POrdersDAL.getAll(1000);
-    const stats = p2pMatchingService.calculateOrderStats(allOrders);
+    // SQL aggregation (snake_case keys match the frontend stats grid)
+    const stats = await P2POrdersDAL.getStats();
 
     res.json({
       success: true,
@@ -2392,10 +2378,7 @@ app.patch('/api/payment_requests/:requestId/paid',
 
     // Verify on-chain: the tx must be a successful Payment delivering at
     // least the requested amount to the request's recipient address.
-    const client = new xrpl.Client(
-      process.env.XRPL_TESTNET_URL || 'wss://s.altnet.rippletest.net:51233'
-    );
-    await client.connect();
+    const client = await xrplClientService.getClient();
     try {
       const txResponse = await client.request({ command: 'tx', transaction: txHash });
       const txJson = txResponse.result.tx_json || txResponse.result;
@@ -2413,14 +2396,12 @@ app.patch('/api/payment_requests/:requestId/paid',
         throw new Error(`Transaction delivers less than the requested amount (${deliveredDrops / 1e6} XRP)`);
       }
     } catch (err) {
-      await client.disconnect();
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
         message: `Could not verify payment on-chain: ${err.message}`
       });
     }
-    await client.disconnect();
 
     const updated = await PaymentRequestsDAL.markAsPaid(req.params.requestId, txHash);
     if (!updated) {
@@ -2569,6 +2550,12 @@ const startServer = async () => {
 
     logger.info('Database connected successfully');
 
+    // Warm the shared XRPL connection in the background so the first user
+    // request never pays the WebSocket handshake. Non-fatal on failure.
+    if (process.env.NODE_ENV !== 'test') {
+      xrplClientService.warmUp();
+    }
+
     // Automatically run database migrations to ensure schema is up-to-date
     logger.info('Running database migrations automatically on startup...');
     try {
@@ -2641,10 +2628,7 @@ const startServer = async () => {
         try {
           const expired = await P2POrdersDAL.getExpiredLockedEscrows();
           if (expired.length > 0) {
-            client = new xrpl.Client(
-              process.env.XRPL_TESTNET_URL || 'wss://s.altnet.rippletest.net:51233'
-            );
-            await client.connect();
+            client = await xrplClientService.getClient();
           }
           let cancelledCount = 0;
           for (const order of expired) {
@@ -2675,10 +2659,6 @@ const startServer = async () => {
           }
         } catch (err) {
           logger.error('Escrow sweep failed', { error: err.message });
-        } finally {
-          if (client) {
-            try { await client.disconnect(); } catch (err) { /* already closed */ }
-          }
         }
       };
       const escrowTimer = setInterval(sweepExpiredEscrows, escrowSweepInterval);

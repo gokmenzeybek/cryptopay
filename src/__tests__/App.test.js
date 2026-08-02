@@ -40,18 +40,18 @@ describe('App routing', () => {
     ['/admin', 'admin-page'],
     ['/settings', 'settings-page'],
     ['/dashboard', 'dashboard-page']
-  ])('route %s renders %s', (path, marker) => {
+  ])('route %s renders %s', async (path, marker) => {
     renderAt(path);
-    expect(screen.getByText(marker)).toBeInTheDocument();
+    expect(await screen.findByText(marker)).toBeInTheDocument();
   });
 
-  test('/payment redirects to /pay', () => {
+  test('/payment redirects to /pay', async () => {
     renderAt('/payment');
-    expect(screen.getByText('send-page')).toBeInTheDocument();
+    expect(await screen.findByText('send-page')).toBeInTheDocument();
   });
 
-  test('/scanner redirects to /pay?scan=1', () => {
+  test('/scanner redirects to /pay?scan=1', async () => {
     renderAt('/scanner');
-    expect(screen.getByText('send-page')).toBeInTheDocument();
+    expect(await screen.findByText('send-page')).toBeInTheDocument();
   });
 });

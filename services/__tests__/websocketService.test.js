@@ -19,7 +19,7 @@ jest.mock('../../database/connection', () => ({
 }));
 
 const { pool } = require('../../database/connection');
-const { initWebSocketServer, wsClients } = require('../../services/websocketService');
+const { initWebSocketServer, broadcastOrderUpdate, wsClients } = require('../../services/websocketService');
 
 const ADDRESS = 'r' + 'a'.repeat(33);
 const OTHER_ADDRESS = 'r' + 'b'.repeat(33);
@@ -178,6 +178,21 @@ describe('WebSocket service hardening', () => {
     const msg = await waitForMessage(ws);
     expect(msg.event).toBe('error');
     expect(msg.code).toBe(401);
+    ws.close();
+  });
+
+  it('broadcasts order_status to authenticated sockets that did not join the room', async () => {
+    pool.query.mockResolvedValue({ rows: [{ id: 1, address: ADDRESS, is_active: true }] });
+    const ws = await connect();
+    ws.send(JSON.stringify({ action: 'auth', token: token() }));
+    const authMsg = await waitForMessage(ws);
+    expect(authMsg.event).toBe('authenticated');
+
+    broadcastOrderUpdate('order_1', 'completed');
+
+    const updateMsg = await waitForMessage(ws);
+    expect(updateMsg.event).toBe('order_status');
+    expect(updateMsg.data).toEqual({ orderId: 'order_1', status: 'completed' });
     ws.close();
   });
 });

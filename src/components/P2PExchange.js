@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { useXRPL } from '../hooks/useXRPL';
 import OrderBook from './OrderBook';
@@ -8,6 +8,7 @@ import PaymentConfirmation from './PaymentConfirmation';
 import XRPConfirmation from './XRPConfirmation';
 import DisputeResolution from './DisputeResolution';
 import authService from '../services/authService';
+import useOrderFeed from '../hooks/useOrderFeed';
 import theme from '../theme';
 
 const P2PContainer = styled.div`
@@ -150,7 +151,7 @@ const P2PExchange = () => {
     { id: 'create', label: 'Create Order' }
   ];
 
-  const fetchP2PStats = async () => {
+  const fetchP2PStats = useCallback(async () => {
     try {
       const response = await fetch(`${apiBaseUrl}/api/p2p/stats`);
       const data = await response.json();
@@ -160,9 +161,9 @@ const P2PExchange = () => {
     } catch (error) {
       console.error('Error fetching P2P stats:', error);
     }
-  };
+  }, [apiBaseUrl]);
 
-  const fetchCurrentRate = async () => {
+  const fetchCurrentRate = useCallback(async () => {
     try {
       const response = await fetch(`${apiBaseUrl}/api/p2p/rate`);
       const data = await response.json();
@@ -172,9 +173,9 @@ const P2PExchange = () => {
     } catch (error) {
       console.error('Error fetching current rate:', error);
     }
-  };
+  }, [apiBaseUrl]);
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       const response = await fetch(`${apiBaseUrl}/api/p2p/orders?limit=50`);
       const data = await response.json();
@@ -184,9 +185,9 @@ const P2PExchange = () => {
     } catch (error) {
       console.error('Error fetching orders:', error);
     }
-  };
+  }, [apiBaseUrl]);
 
-  const fetchMyOrders = async () => {
+  const fetchMyOrders = useCallback(async () => {
     if (!userAddress) return;
     try {
       const response = await authService.authFetch(`${apiBaseUrl}/api/p2p/my-orders/${userAddress}?limit=50`);
@@ -197,9 +198,9 @@ const P2PExchange = () => {
     } catch (error) {
       console.error('Error fetching my orders:', error);
     }
-  };
+  }, [userAddress, apiBaseUrl]);
 
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -215,15 +216,28 @@ const P2PExchange = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchP2PStats, fetchCurrentRate, fetchOrders, fetchMyOrders]);
 
-  const handleOrderCreated = (newOrder) => {
+  const silentRefresh = useCallback(async () => {
+    try {
+      await Promise.all([
+        fetchP2PStats(),
+        fetchCurrentRate(),
+        fetchOrders(),
+        fetchMyOrders()
+      ]);
+    } catch (error) {
+      console.error('Error in background refresh:', error);
+    }
+  }, [fetchP2PStats, fetchCurrentRate, fetchOrders, fetchMyOrders]);
+
+  const handleOrderCreated = useCallback((newOrder) => {
     setSuccess('Order created successfully!');
     refreshData();
     setActiveTab('my-orders');
-  };
+  }, [refreshData]);
 
-  const handleOrderMatched = async (orderId) => {
+  const handleOrderMatched = useCallback(async (orderId) => {
     try {
       const counterpartyOrder = orders.find(o => o.id === orderId);
       if (!counterpartyOrder) {
@@ -264,32 +278,41 @@ const P2PExchange = () => {
       console.error('Error matching orders:', error);
       setError('Network error. Please try again.');
     }
-  };
+  }, [orders, myOrders, apiBaseUrl, refreshData]);
 
-  const handlePaymentConfirmed = (orderId) => {
+  const handlePaymentConfirmed = useCallback((orderId) => {
     setSuccess('Payment confirmed! Waiting for XRP transfer...');
     refreshData();
-  };
+  }, [refreshData]);
 
-  const handleXRPConfirmed = (orderId) => {
+  const handleXRPConfirmed = useCallback((orderId) => {
     setSuccess('Trade completed successfully!');
     refreshData();
-  };
+  }, [refreshData]);
 
-  const handleDisputeRaised = (orderId) => {
+  const handleDisputeRaised = useCallback((orderId) => {
     setSuccess('Dispute raised successfully! A moderator will review it.');
     refreshData();
-  };
+  }, [refreshData]);
 
-  const handleOrderCancelled = (orderId) => {
+  const handleOrderCancelled = useCallback((orderId) => {
     setSuccess('Order cancelled successfully.');
     refreshData();
-  };
+  }, [refreshData]);
 
-  const handleEscrowLocked = (orderId) => {
+  const handleEscrowLocked = useCallback((orderId) => {
     setSuccess('XRP locked in escrow on the ledger.');
     refreshData();
-  };
+  }, [refreshData]);
+
+  const handleCloseDetails = useCallback(() => {
+    setSelectedOrder(null);
+  }, []);
+
+  useOrderFeed({
+    onUpdate: silentRefresh,
+    enabled: !!userAddress
+  });
 
   useEffect(() => {
     if (apiBaseUrl) {
@@ -440,7 +463,7 @@ const P2PExchange = () => {
       {selectedOrder && (
         <OrderDetails
           order={selectedOrder}
-          onClose={() => setSelectedOrder(null)}
+          onClose={handleCloseDetails}
           onPaymentConfirmed={handlePaymentConfirmed}
           onXRPConfirmed={handleXRPConfirmed}
           onDisputeRaised={handleDisputeRaised}

@@ -217,12 +217,16 @@ function initWebSocketServer(server) {
 }
 
 /**
- * Broadcast order status update to participants in order room
+ * Broadcast order status update to participants in order room.
+ * Also broadcasts to every authenticated socket so the live order book feed
+ * (see useOrderFeed hook) can refresh on demand without polling.
  */
 function broadcastOrderUpdate(orderId, status) {
   const payload = JSON.stringify({ event: 'order_status', data: { orderId, status } });
   for (const [client, clientData] of wsClients.entries()) {
-    if (client.readyState === ws.OPEN && clientData.rooms && clientData.rooms.has(`order_${orderId}`)) {
+    if (client.readyState !== ws.OPEN) continue;
+    const inRoom = clientData.rooms && clientData.rooms.has(`order_${orderId}`);
+    if (inRoom || clientData.authenticated) {
       client.send(payload);
     }
   }

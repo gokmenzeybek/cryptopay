@@ -1,21 +1,25 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import styled from 'styled-components';
 import Header from './components/Header';
 import TabBar from './components/TabBar';
 import Home from './components/Home';
-import Activity from './components/Activity';
-import SendFlow from './components/SendFlow';
-import Wallet from './components/Wallet';
-import RequestFlow from './components/RequestFlow';
-import Dashboard from './components/Dashboard';
-import P2PExchange from './components/P2PExchange';
-import AdminConsole from './components/AdminConsole';
 import RequireRole from './components/RequireRole';
 import InlineNotice from './components/InlineNotice';
 import { XRPLProvider } from './hooks/useXRPL';
 import theme from './theme';
 import { SpeedInsights } from '@vercel/speed-insights/react';
+
+// Route-level code splitting (CRA 5 supports React.lazy natively): heavy
+// screens (P2P stack, admin, QR scanner, dashboards) load on demand instead of
+// bloating the initial bundle. Kept eager: Header, TabBar, Home, and the shell.
+const Activity = lazy(() => import('./components/Activity'));
+const SendFlow = lazy(() => import('./components/SendFlow'));
+const Wallet = lazy(() => import('./components/Wallet'));
+const RequestFlow = lazy(() => import('./components/RequestFlow'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const P2PExchange = lazy(() => import('./components/P2PExchange'));
+const AdminConsole = lazy(() => import('./components/AdminConsole'));
 
 // Paper-first shell (M1, UI_DESIGN §3/§11): the app is mobile-first and
 // centers in a readable column on desktop; legacy wide screens (Convert)
@@ -37,6 +41,14 @@ const Content = styled.div`
   padding: 1.5rem 0.5rem 6rem;
 `;
 
+// Minimal placeholder shown while a lazy route chunk loads.
+const RouteFallback = styled.div`
+  padding: 48px 0;
+  text-align: center;
+  color: ${theme.color.inkSoft};
+  font-size: 14px;
+`;
+
 function App() {
   return (
     <XRPLProvider>
@@ -45,19 +57,21 @@ function App() {
           <Header />
           <Content>
             <InlineNotice />
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/activity" element={<Activity />} />
-              <Route path="/pay" element={<SendFlow />} />
-              <Route path="/request" element={<RequestFlow />} />
-              <Route path="/p2p" element={<RequireRole allowed="privileged"><P2PExchange /></RequireRole>} />
-              <Route path="/admin" element={<RequireRole allowed={['admin']}><AdminConsole /></RequireRole>} />
-              <Route path="/settings" element={<Wallet />} />
-              {/* Legacy routes kept as redirects (M1 navigation rework) */}
-              <Route path="/payment" element={<Navigate to="/pay" replace />} />
-              <Route path="/scanner" element={<Navigate to="/pay?scan=1" replace />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-            </Routes>
+            <Suspense fallback={<RouteFallback>Loading…</RouteFallback>}>
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/activity" element={<Activity />} />
+                <Route path="/pay" element={<SendFlow />} />
+                <Route path="/request" element={<RequestFlow />} />
+                <Route path="/p2p" element={<RequireRole allowed="privileged"><P2PExchange /></RequireRole>} />
+                <Route path="/admin" element={<RequireRole allowed={['admin']}><AdminConsole /></RequireRole>} />
+                <Route path="/settings" element={<Wallet />} />
+                {/* Legacy routes kept as redirects (M1 navigation rework) */}
+                <Route path="/payment" element={<Navigate to="/pay" replace />} />
+                <Route path="/scanner" element={<Navigate to="/pay?scan=1" replace />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+              </Routes>
+            </Suspense>
           </Content>
           <TabBar />
           <SpeedInsights />
