@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { toast } from 'react-toastify';
+import { notice } from '../../services/notice';
 import OrderDetails from '../OrderDetails';
 import { useXRPL } from '../../hooks/useXRPL';
 import authService from '../../services/authService';
@@ -153,7 +153,7 @@ describe('OrderDetails — cancel flow', () => {
         body: JSON.stringify({ orderId: 21, reason: 'User cancelled' })
       })
     );
-    expect(toast.success).toHaveBeenCalledWith('Order cancelled');
+    expect(notice.success).toHaveBeenCalledWith('Order cancelled');
     expect(cbs.onCancelled).toHaveBeenCalledWith(21);
     expect(cbs.onClose).toHaveBeenCalled();
   });
@@ -168,7 +168,7 @@ describe('OrderDetails — cancel flow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Cancel order'));
     });
-    expect(toast.info).toHaveBeenCalledWith('Escrow status: cancel_pending');
+    expect(notice.info).toHaveBeenCalledWith('Escrow status: cancel_pending');
   });
 
   test('cancel failure with dispute hint', async () => {
@@ -181,8 +181,8 @@ describe('OrderDetails — cancel flow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Cancel order'));
     });
-    expect(toast.error).toHaveBeenCalledWith('Escrow locked — open a dispute');
-    expect(toast.info).toHaveBeenCalledWith('You can raise a dispute from this order instead');
+    expect(notice.error).toHaveBeenCalledWith('Escrow locked — open a dispute');
+    expect(notice.info).toHaveBeenCalledWith('You can raise a dispute from this order instead');
   });
 
   test('uses the entered cancellation reason', async () => {
@@ -217,7 +217,7 @@ describe('OrderDetails — escrow lock flow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Lock XRP in Escrow'));
     });
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('XRP locked in escrow on the ledger'));
+    await waitFor(() => expect(notice.success).toHaveBeenCalledWith('XRP locked in escrow on the ledger'));
     expect(authService.authFetch).toHaveBeenCalledWith(
       'http://localhost:5001/api/p2p/prepare-escrow',
       expect.objectContaining({
@@ -241,7 +241,7 @@ describe('OrderDetails — escrow lock flow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Lock XRP in Escrow'));
     });
-    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Not connected'));
+    expect(notice.error).toHaveBeenCalledWith(expect.stringContaining('Not connected'));
   });
 
   test('blocked without a wallet', async () => {
@@ -249,7 +249,7 @@ describe('OrderDetails — escrow lock flow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Lock XRP in Escrow'));
     });
-    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('No unlocked wallet'));
+    expect(notice.error).toHaveBeenCalledWith(expect.stringContaining('No unlocked wallet'));
   });
 
   test('blocked without a counterparty', async () => {
@@ -257,7 +257,7 @@ describe('OrderDetails — escrow lock flow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Lock XRP in Escrow'));
     });
-    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('no counterparty'));
+    expect(notice.error).toHaveBeenCalledWith(expect.stringContaining('no counterparty'));
   });
 
   test('prepare-escrow server failure', async () => {
@@ -269,7 +269,7 @@ describe('OrderDetails — escrow lock flow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Lock XRP in Escrow'));
     });
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('order not yours'));
+    await waitFor(() => expect(notice.error).toHaveBeenCalledWith('order not yours'));
   });
 
   test('submit engine_result failure', async () => {
@@ -284,7 +284,7 @@ describe('OrderDetails — escrow lock flow', () => {
       fireEvent.click(screen.getByText('Lock XRP in Escrow'));
     });
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('EscrowCreate submit failed: tecUNFUNDED')
+      expect(notice.error).toHaveBeenCalledWith('EscrowCreate submit failed: tecUNFUNDED')
     );
   });
 
@@ -297,7 +297,7 @@ describe('OrderDetails — escrow lock flow', () => {
       fireEvent.click(screen.getByText('Lock XRP in Escrow'));
     });
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('EscrowCreate failed on ledger: tecPATH_DRY')
+      expect(notice.error).toHaveBeenCalledWith('EscrowCreate failed on ledger: tecPATH_DRY')
     );
   });
 
@@ -309,7 +309,7 @@ describe('OrderDetails — escrow lock flow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Lock XRP in Escrow'));
     });
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('db down'));
+    await waitFor(() => expect(notice.error).toHaveBeenCalledWith('db down'));
   });
 });
 

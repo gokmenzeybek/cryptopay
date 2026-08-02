@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useXRPL } from '../hooks/useXRPL';
-import { toast } from 'react-toastify';
+import { notice } from '../services/notice';
 import { useSearchParams } from 'react-router-dom';
 
 const PaymentContainer = styled.div`
@@ -181,12 +181,12 @@ const Payment = () => {
     e.preventDefault();
     
     if (!wallet) {
-      toast.error('No wallet available. Please create a wallet first.');
+      notice.error('No wallet available. Please create a wallet first.');
       return;
     }
 
     if (!formData.recipientAddress || !formData.amount) {
-      toast.error('Please fill in all required fields');
+      notice.error('Please fill in all required fields');
       return;
     }
 

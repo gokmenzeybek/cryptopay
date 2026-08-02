@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
-import { toast } from 'react-toastify';
+import { notice } from '../services/notice';
 import PaymentConfirmation from './PaymentConfirmation';
 import XRPConfirmation from './XRPConfirmation';
 import DisputeResolution from './DisputeResolution';
 import ConfirmDialog from './ConfirmDialog';
+import InlineNotice from './InlineNotice';
 import { useXRPL } from '../hooks/useXRPL';
 import authService from '../services/authService';
 import theme from '../theme';
@@ -289,18 +290,18 @@ const OrderDetails = ({
         throw new Error(data.message || data.error || 'Failed to cancel the order');
       }
 
-      toast.success('Order cancelled');
+      notice.success('Order cancelled');
       if (data.escrow) {
-        toast.info(`Escrow status: ${data.escrow.status}`);
+        notice.info(`Escrow status: ${data.escrow.status}`);
       }
       if (onCancelled) {
         onCancelled(order.id);
       }
       onClose();
     } catch (error) {
-      toast.error(error.message);
+      notice.error(error.message);
       if (/dispute/i.test(error.message)) {
-        toast.info('You can raise a dispute from this order instead');
+        notice.info('You can raise a dispute from this order instead');
       }
     } finally {
       setCancelling(false);
@@ -309,21 +310,21 @@ const OrderDetails = ({
 
   const handleLockEscrow = async () => {
     if (!isConnected || !client) {
-      toast.error('Not connected to XRPL. Please wait for the connection and try again.');
+      notice.error('Not connected to XRPL. Please wait for the connection and try again.');
       return;
     }
     if (!wallet) {
-      toast.error('No unlocked wallet. Load or create your wallet first.');
+      notice.error('No unlocked wallet. Load or create your wallet first.');
       return;
     }
     if (!order.counterpartyAddress) {
-      toast.error('This order has no counterparty yet.');
+      notice.error('This order has no counterparty yet.');
       return;
     }
 
     setLockingEscrow(true);
     try {
-      toast.info('Preparing escrow...');
+      notice.info('Preparing escrow...');
       const prepareResponse = await authService.authFetch(`${apiBaseUrl}/api/p2p/prepare-escrow`, {
         method: 'POST',
         body: JSON.stringify({
@@ -337,12 +338,12 @@ const OrderDetails = ({
         throw new Error(prepareData.message || prepareData.error || 'Failed to prepare the escrow');
       }
 
-      toast.info('Signing EscrowCreate with your wallet...');
+      notice.info('Signing EscrowCreate with your wallet...');
       const preparedTx = await client.autofill(prepareData.transaction);
       const offerSequence = preparedTx.Sequence;
       const signedTx = wallet.sign(preparedTx);
 
-      toast.info('Submitting escrow to the XRPL...');
+      notice.info('Submitting escrow to the XRPL...');
       const prelim = await client.submit(signedTx.tx_blob);
       if (prelim.result.engine_result !== 'tesSUCCESS') {
         throw new Error(`EscrowCreate submit failed: ${prelim.result.engine_result}`);
@@ -366,13 +367,13 @@ const OrderDetails = ({
         throw new Error(submitData.message || submitData.error || 'Failed to record the escrow lock');
       }
 
-      toast.success('XRP locked in escrow on the ledger');
+      notice.success('XRP locked in escrow on the ledger');
       if (onEscrowLocked) {
         onEscrowLocked(order.id);
       }
       onClose();
     } catch (error) {
-      toast.error(error.message);
+      notice.error(error.message);
     } finally {
       setLockingEscrow(false);
     }
@@ -381,6 +382,7 @@ const OrderDetails = ({
   return (
     <ModalOverlay onClick={onClose}>
       <ModalContent onClick={(e) => e.stopPropagation()}>
+        <InlineNotice />
         <ModalHeader>
           <ModalTitle>Order Details</ModalTitle>
           <CloseButton onClick={onClose}>×</CloseButton>

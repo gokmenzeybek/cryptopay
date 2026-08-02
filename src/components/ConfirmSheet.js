@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import styled from 'styled-components';
-import { toast } from 'react-toastify';
+import { notice } from '../services/notice';
 import { useXRPL } from '../hooks/useXRPL';
+import InlineNotice from './InlineNotice';
 import authService from '../services/authService';
 import theme from '../theme';
 
@@ -226,7 +227,7 @@ const ConfirmSheet = ({ recipient, amountXrp, memo, requestId, requestNote, tryR
 
   const execute = async () => {
     if (!wallet) {
-      toast.error('Unlock your wallet first');
+      notice.error('Unlock your wallet first');
       return;
     }
     setPhase('sending');
@@ -282,6 +283,7 @@ const ConfirmSheet = ({ recipient, amountXrp, memo, requestId, requestNote, tryR
   return (
     <Overlay onClick={phase === 'success' ? onClose : undefined}>
       <Sheet onClick={(e) => e.stopPropagation()}>
+        <InlineNotice />
         <HeroAmount>{parseFloat(amountXrp)} XRP</HeroAmount>
         {fiatLine && <FiatLine>{fiatLine}</FiatLine>}
 

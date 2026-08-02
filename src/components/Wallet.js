@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import { useXRPL } from '../hooks/useXRPL';
-import { toast } from 'react-toastify';
+import { notice } from '../services/notice';
 import { encryptWalletForExport } from '../services/walletStorage';
 import theme from '../theme';
 
@@ -110,13 +110,13 @@ const Wallet = () => {
       setIsConnecting(true);
       const connected = await connectToXRPL();
       if (connected) {
-        toast.success('Connected to XRPL successfully!');
+        notice.success('Connected to XRPL successfully!');
       } else {
-        toast.error('Failed to connect to XRPL');
+        notice.error('Failed to connect to XRPL');
       }
     } catch (error) {
       console.error('Error connecting to XRPL:', error);
-      toast.error('Failed to connect to XRPL');
+      notice.error('Failed to connect to XRPL');
     } finally {
       setIsConnecting(false);
     }
@@ -136,7 +136,7 @@ const Wallet = () => {
   const handleRefreshBalance = async () => {
     try {
       await refreshBalance();
-      toast.success('Balance updated');
+      notice.success('Balance updated');
     } catch (error) {
       console.error('Error refreshing balance:', error);
     }
@@ -150,7 +150,7 @@ const Wallet = () => {
       confirmLabel: 'Export'
     });
     if (!exportPassword) {
-      toast.info('Export cancelled — the wallet is only exported in encrypted form');
+      notice.info('Export cancelled — the wallet is only exported in encrypted form');
       return;
     }
 
@@ -162,9 +162,9 @@ const Wallet = () => {
       link.href = URL.createObjectURL(dataBlob);
       link.download = `cryptoPay-wallet-${wallet.address}.encrypted.json`;
       link.click();
-      toast.success('Encrypted wallet exported successfully');
+      notice.success('Encrypted wallet exported successfully');
     } catch (err) {
-      toast.error(`Export failed: ${err.message}`);
+      notice.error(`Export failed: ${err.message}`);
     }
   };
 

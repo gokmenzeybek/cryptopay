@@ -12,10 +12,6 @@ import React from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { useXRPL, XRPLProvider } from '../useXRPL';
 
-jest.mock('react-toastify', () => ({
-  toast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warn: jest.fn() }
-}));
-
 global.fetch = jest.fn().mockResolvedValue({
   ok: true,
   json: jest.fn().mockResolvedValue({ success: true })

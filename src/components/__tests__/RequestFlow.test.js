@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { toast } from 'react-toastify';
+import { notice } from '../../services/notice';
 import RequestFlow from '../RequestFlow';
 import { useXRPL } from '../../hooks/useXRPL';
 import authService from '../../services/authService';
@@ -107,7 +107,7 @@ describe('RequestFlow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Create request link'));
     });
-    expect(toast.error).toHaveBeenCalledWith('bad request');
+    expect(notice.error).toHaveBeenCalledWith('bad request');
     expect(screen.queryByText(/Scan to pay me/)).not.toBeInTheDocument();
   });
 
@@ -121,7 +121,7 @@ describe('RequestFlow', () => {
       fireEvent.click(screen.getByText('Copy'));
     });
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('req=NEWREQ'));
-    expect(toast.success).toHaveBeenCalledWith('Link copied');
+    expect(notice.success).toHaveBeenCalledWith('Link copied');
   });
 
   test('clipboard failure toasts an error', async () => {
@@ -134,7 +134,7 @@ describe('RequestFlow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Copy'));
     });
-    expect(toast.error).toHaveBeenCalledWith('Could not copy the link');
+    expect(notice.error).toHaveBeenCalledWith('Could not copy the link');
   });
 
   test('share uses navigator.share when available', async () => {

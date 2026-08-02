@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import styled from 'styled-components';
 import QRCodeLib from 'qrcode';
-import { toast } from 'react-toastify';
+import { notice } from '../services/notice';
 import { useXRPL } from '../hooks/useXRPL';
 import authService from '../services/authService';
 import theme from '../theme';
@@ -239,7 +239,7 @@ const RequestFlow = () => {
       setLink(paymentLink);
       fetchMyRequests();
     } catch (err) {
-      toast.error(err.message);
+      notice.error(err.message);
     } finally {
       setCreating(false);
     }
@@ -248,9 +248,9 @@ const RequestFlow = () => {
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(link);
-      toast.success('Link copied');
+      notice.success('Link copied');
     } catch (_) {
-      toast.error('Could not copy the link');
+      notice.error('Could not copy the link');
     }
   };
 

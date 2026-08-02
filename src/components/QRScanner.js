@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useXRPL } from '../hooks/useXRPL';
-import { toast } from 'react-toastify';
+import { notice } from '../services/notice';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { Link } from 'react-router-dom';
 import theme from '../theme';
@@ -229,10 +229,10 @@ const QRScanner = () => {
       const qrData = JSON.parse(scannedText);
       if (qrData.type === 'payment_request' && qrData.recipient && qrData.amount) {
         setPaymentRequest(qrData);
-        toast.success('Payment request loaded');
+        notice.success('Payment request loaded');
         return;
       } else {
-        toast.error('Invalid QR code. Please scan a payment request QR code.');
+        notice.error('Invalid QR code. Please scan a payment request QR code.');
         return;
       }
     } catch (jsonError) {
@@ -251,13 +251,13 @@ const QRScanner = () => {
           };
 
           setPaymentRequest(paymentData);
-          toast.success('Payment request loaded');
+          notice.success('Payment request loaded');
           return;
         }
       }
 
       console.error('Error parsing QR code:', jsonError);
-      toast.error('Invalid QR code format. Please scan a valid payment request QR code.');
+      notice.error('Invalid QR code format. Please scan a valid payment request QR code.');
     }
   };
 
@@ -266,13 +266,13 @@ const QRScanner = () => {
       handleQRResult(manualInput.trim());
       setManualInput('');
     } else {
-      toast.error('Please enter QR code data first.');
+      notice.error('Please enter QR code data first.');
     }
   };
 
   const confirmPayment = async () => {
     if (!paymentRequest || !wallet) {
-      toast.error('No payment request or wallet available.');
+      notice.error('No payment request or wallet available.');
       return;
     }
 
@@ -291,7 +291,7 @@ const QRScanner = () => {
 
   const cancelPayment = () => {
     setPaymentRequest(null);
-    toast.info('Payment cancelled');
+    notice.info('Payment cancelled');
   };
 
   const handleCreateWallet = async () => {
@@ -299,10 +299,10 @@ const QRScanner = () => {
       setIsCreatingWallet(true);
       await createWallet();
       setShowWalletCreation(false);
-      toast.success('Wallet created successfully!');
+      notice.success('Wallet created successfully!');
     } catch (error) {
       console.error('Error creating wallet:', error);
-      toast.error(`Error creating wallet: ${error.message}`);
+      notice.error(`Error creating wallet: ${error.message}`);
     } finally {
       setIsCreatingWallet(false);
     }
@@ -354,13 +354,13 @@ const QRScanner = () => {
               console.error('QR Scanner Error:', error);
               setErrorMessage(error.message || error.toString());
               if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-                toast.error('Camera access denied. Please enable camera permissions in your browser or device settings.');
+                notice.error('Camera access denied. Please enable camera permissions in your browser or device settings.');
               } else if (error.name === 'NotFoundError') {
-                toast.error('No camera found. Please check your device has a camera.');
+                notice.error('No camera found. Please check your device has a camera.');
               } else if (error.name === 'NotSupportedError') {
-                toast.error('Camera not supported. Please try a different browser or device.');
+                notice.error('Camera not supported. Please try a different browser or device.');
               } else {
-                toast.error(`Scanner error: ${error.message || error.toString()}`);
+                notice.error(`Scanner error: ${error.message || error.toString()}`);
               }
             }}
             styles={{

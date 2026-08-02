@@ -6,6 +6,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import AddFunds from '../AddFunds';
 import { useXRPL } from '../../hooks/useXRPL';
 import authService from '../../services/authService';
+import { notice } from '../../services/notice';
 
 jest.mock('../../hooks/useXRPL');
 jest.mock('../../services/authService');
@@ -122,6 +123,109 @@ describe('AddFunds Component', () => {
         })
       );
       expect(screen.getByText('Waiting for seller')).toBeInTheDocument();
+    });
+  });
+
+  test('returns to entry screen when quick-match finds no seller', async () => {
+    global.fetch = jest.fn((url) => {
+      if (url.includes('/api/p2p/rate')) {
+        return Promise.resolve({ json: () => Promise.resolve({ success: true, rate: '40.0' }) });
+      }
+      if (url.includes('/api/p2p/quick-match')) {
+        return Promise.resolve({ json: () => Promise.resolve({ success: false, message: 'No sellers available right now.' }) });
+      }
+      return Promise.reject(new Error('Unknown URL'));
+    });
+    void 0;
+    render(<AddFunds onClose={mockOnClose} />);
+    fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '500' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Find a seller'));
+    });
+    await waitFor(() => {
+      expect(notice.error).toHaveBeenCalledWith('No sellers available right now.');
+      expect(screen.getByText('Add funds')).toBeInTheDocument();
+    });
+  });
+
+  test('shows inline error when quick-match request fails', async () => {
+    global.fetch = jest.fn((url) => {
+      if (url.includes('/api/p2p/rate')) {
+        return Promise.resolve({ json: () => Promise.resolve({ success: true, rate: '40.0' }) });
+      }
+      return Promise.reject(new Error('Network down'));
+    });
+    void 0;
+    render(<AddFunds onClose={mockOnClose} />);
+    fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '500' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Find a seller'));
+    });
+    await waitFor(() => {
+      expect(notice.error).toHaveBeenCalledWith('Network error. Please try again.');
+      expect(screen.getByText('Add funds')).toBeInTheDocument();
+    });
+  });
+
+  test('shows inline error when confirm-payment fails', async () => {
+    authService.authFetch.mockImplementation(async () => ({
+      json: async () => ({ success: false, message: 'Could not confirm payment.' })
+    }));
+    void 0;
+    render(<AddFunds onClose={mockOnClose} />);
+    fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '500' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Find a seller'));
+    });
+    await waitFor(() => {
+      expect(screen.getByText('I\'ve sent the transfer')).toBeInTheDocument();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('I\'ve sent the transfer'));
+    });
+    await waitFor(() => {
+      expect(notice.error).toHaveBeenCalledWith('Could not confirm payment.');
+      expect(screen.getByText('Send the transfer')).toBeInTheDocument();
+    });
+  });
+
+  test('shows inline error when confirm-payment request fails', async () => {
+    authService.authFetch.mockRejectedValue(new Error('Network down'));
+    void 0;
+    render(<AddFunds onClose={mockOnClose} />);
+    fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '500' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Find a seller'));
+    });
+    await waitFor(() => {
+      expect(screen.getByText('I\'ve sent the transfer')).toBeInTheDocument();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('I\'ve sent the transfer'));
+    });
+    await waitFor(() => {
+      expect(notice.error).toHaveBeenCalledWith('Network error. Please try again.');
+      expect(screen.getByText('Send the transfer')).toBeInTheDocument();
+    });
+  });
+
+  test('copy buttons write to the clipboard', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    void 0;
+    render(<AddFunds onClose={mockOnClose} />);
+    fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '500' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Find a seller'));
+    });
+    await waitFor(() => {
+      expect(screen.getByText('1234567890')).toBeInTheDocument();
+    });
+    const copyButtons = screen.getAllByText('COPY');
+    fireEvent.click(copyButtons[0]);
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('1234567890');
+      expect(notice.success).toHaveBeenCalledWith('Copied!');
     });
   });
 });

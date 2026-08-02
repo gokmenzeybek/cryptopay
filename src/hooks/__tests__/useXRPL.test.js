@@ -13,7 +13,7 @@
 
 import React from 'react';
 import { renderHook, act } from '@testing-library/react';
-import { toast } from 'react-toastify';
+import { notice } from '../../services/notice';
 import { useXRPL, XRPLProvider } from '../useXRPL';
 import authService from '../../services/authService';
 import {
@@ -23,10 +23,6 @@ import {
   getStoredWalletAddress,
   clearStoredWallet
 } from '../../services/walletStorage';
-
-jest.mock('react-toastify', () => ({
-  toast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warn: jest.fn() }
-}));
 
 jest.mock('../../services/authService', () => ({
   __esModule: true,
@@ -162,7 +158,7 @@ describe('useXRPL hook (current contract)', () => {
 
       expect(returned).toBeNull();
       expect(result.current.isConnected).toBe(false);
-      expect(toast.error).toHaveBeenCalledWith(
+      expect(notice.error).toHaveBeenCalledWith(
         expect.stringContaining('Failed to connect to XRPL')
       );
     });
@@ -234,7 +230,7 @@ describe('useXRPL hook (current contract)', () => {
 
       expect(err).toBeInstanceOf(Error);
       expect(err.message).toContain('faucet down');
-      expect(toast.error).toHaveBeenCalledWith(
+      expect(notice.error).toHaveBeenCalledWith(
         expect.stringContaining('faucet down')
       );
     });
@@ -298,7 +294,7 @@ describe('useXRPL hook (current contract)', () => {
       });
 
       expect(loaded).toBe(false);
-      expect(toast.error).toHaveBeenCalledWith(
+      expect(notice.error).toHaveBeenCalledWith(
         expect.stringContaining('Could not unlock wallet')
       );
     });
@@ -342,7 +338,7 @@ describe('useXRPL hook (current contract)', () => {
       expect(clearStoredWallet).toHaveBeenCalled();
       expect(result.current.wallet).toBeNull();
       expect(result.current.sessionType).toBeNull();
-      expect(toast.error).toHaveBeenCalledWith(
+      expect(notice.error).toHaveBeenCalledWith(
         expect.stringContaining('Only seller and admin wallets are recoverable')
       );
     });

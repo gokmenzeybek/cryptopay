@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { toast } from 'react-toastify';
+import { notice } from '../services/notice';
 import authService from '../services/authService';
 import { saveWalletEncrypted, loadWalletEncrypted, hasStoredWallet, getStoredWalletAddress, clearStoredWallet } from '../services/walletStorage';
 import UnlockModal from '../components/UnlockModal';
@@ -168,7 +168,7 @@ export const XRPLProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('Failed to connect to XRPL:', error);
-      toast.error(`Failed to connect to XRPL: ${error.message}`);
+      notice.error(`Failed to connect to XRPL: ${error.message}`);
       setIsConnected(false);
       return null;
     }
@@ -178,7 +178,7 @@ export const XRPLProvider = ({ children }) => {
   const createWallet = async () => {
     try {
       setLoading(true);
-      toast.info('Creating new wallet...');
+      notice.info('Creating new wallet...');
 
       // Use the client returned by connectToXRPL() directly — React state
       // updates are async, so reading `client` here would be a stale closure
@@ -221,18 +221,18 @@ export const XRPLProvider = ({ children }) => {
       if (walletPassword) {
         try {
           await saveWalletEncrypted(newWallet, walletPassword);
-          toast.success('Wallet saved encrypted on this device');
+          notice.success('Wallet saved encrypted on this device');
         } catch (storageErr) {
-          toast.error(`Could not save wallet: ${storageErr.message}`);
+          notice.error(`Could not save wallet: ${storageErr.message}`);
         }
       } else {
-        toast.warn('Wallet NOT saved on this device — export it or it will be lost on refresh');
+        notice.warn('Wallet NOT saved on this device — export it or it will be lost on refresh');
       }
 
       return newWallet;
     } catch (error) {
       console.error('Error creating wallet:', error);
-      toast.error(`Error creating wallet: ${error.message}`);
+      notice.error(`Error creating wallet: ${error.message}`);
       throw error;
     } finally {
       setLoading(false);
@@ -278,7 +278,7 @@ export const XRPLProvider = ({ children }) => {
         // unregistered server-side, refuse without deleting the user's record.
         if (apiBaseUrl) {
           clearStoredWallet();
-          toast.error('Only seller and admin wallets are recoverable. This wallet is a buyer wallet, so it was removed from this device — use the guest buyer flow instead.');
+          notice.error('Only seller and admin wallets are recoverable. This wallet is a buyer wallet, so it was removed from this device — use the guest buyer flow instead.');
         }
         return false;
       }
@@ -293,7 +293,7 @@ export const XRPLProvider = ({ children }) => {
       return true;
     } catch (error) {
       console.warn('Error unlocking stored wallet:', error.message);
-      toast.error(`Could not unlock wallet: ${error.message}`);
+      notice.error(`Could not unlock wallet: ${error.message}`);
       return false;
     }
   };
@@ -326,7 +326,7 @@ export const XRPLProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('Error refreshing balance:', error);
-      toast.error('Error refreshing balance');
+      notice.error('Error refreshing balance');
     }
   };
 
@@ -337,7 +337,7 @@ export const XRPLProvider = ({ children }) => {
   const createBurnerWallet = async () => {
     try {
       setLoading(true);
-      toast.info('Creating a temporary wallet…');
+      notice.info('Creating a temporary wallet…');
       if (!apiBaseUrl) {
         throw new Error('API base URL not ready');
       }
@@ -364,7 +364,7 @@ export const XRPLProvider = ({ children }) => {
       return burnerWallet;
     } catch (error) {
       console.error('Error creating burner wallet:', error);
-      toast.error(`Error creating temporary wallet: ${error.message}`);
+      notice.error(`Error creating temporary wallet: ${error.message}`);
       throw error;
     } finally {
       setLoading(false);
@@ -475,7 +475,7 @@ export const XRPLProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('Error sending payment:', error);
-      toast.error(`Error sending payment: ${error.message}`);
+      notice.error(`Error sending payment: ${error.message}`);
       throw error;
     } finally {
       setLoading(false);

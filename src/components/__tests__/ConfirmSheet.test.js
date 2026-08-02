@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { toast } from 'react-toastify';
+import { notice } from '../../services/notice';
 import ConfirmSheet from '../ConfirmSheet';
 import { useXRPL } from '../../hooks/useXRPL';
 import authService from '../../services/authService';
@@ -116,7 +116,7 @@ describe('ConfirmSheet', () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText('Confirm and send payment'));
     });
-    expect(toast.error).toHaveBeenCalledWith('Unlock your wallet first');
+    expect(notice.error).toHaveBeenCalledWith('Unlock your wallet first');
     expect(useXRPL().sendPayment).not.toHaveBeenCalled();
   });
 

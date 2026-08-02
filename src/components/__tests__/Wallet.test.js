@@ -10,7 +10,7 @@
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { toast } from 'react-toastify';
+import { notice } from '../../services/notice';
 import { XRPLProvider } from '../../hooks/useXRPL';
 import Wallet from '../Wallet';
 import { encryptWalletForExport } from '../../services/walletStorage';
@@ -76,7 +76,7 @@ describe('Wallet Component', () => {
       expect(mockUseXRPL.connectToXRPL).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith('Connected to XRPL successfully!');
+      expect(notice.success).toHaveBeenCalledWith('Connected to XRPL successfully!');
     });
   });
 
@@ -150,7 +150,7 @@ describe('Wallet Component', () => {
       expect(mockUseXRPL.refreshBalance).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith('Balance updated');
+      expect(notice.success).toHaveBeenCalledWith('Balance updated');
     });
   });
 
@@ -209,7 +209,7 @@ describe('Wallet Component', () => {
       fireEvent.click(screen.getByRole('button', { name: /export wallet/i }));
 
       await waitFor(() => {
-        expect(toast.info).toHaveBeenCalledWith(
+        expect(notice.info).toHaveBeenCalledWith(
           expect.stringContaining('Export cancelled')
         );
       });
@@ -240,7 +240,7 @@ describe('Wallet Component', () => {
         );
       });
       await waitFor(() => {
-        expect(toast.success).toHaveBeenCalledWith('Encrypted wallet exported successfully');
+        expect(notice.success).toHaveBeenCalledWith('Encrypted wallet exported successfully');
       });
 
       clickSpy.mockRestore();

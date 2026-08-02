@@ -12,7 +12,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { toast } from 'react-toastify';
+import { notice } from '../../services/notice';
 import { XRPLProvider } from '../../hooks/useXRPL';
 import Payment from '../Payment';
 
@@ -115,7 +115,7 @@ describe('Payment Component', () => {
     fireEvent.submit(screen.getByRole('button', { name: /send payment/i }).closest('form'));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith('Please fill in all required fields');
+      expect(notice.error).toHaveBeenCalledWith('Please fill in all required fields');
     });
     expect(mockUseXRPL.sendPayment).not.toHaveBeenCalled();
   });
@@ -128,7 +128,7 @@ describe('Payment Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /send payment/i }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith(
+      expect(notice.error).toHaveBeenCalledWith(
         'No wallet available. Please create a wallet first.'
       );
     });

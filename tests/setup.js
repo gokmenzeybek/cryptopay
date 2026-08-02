@@ -52,13 +52,16 @@ global.window = {
 // NOTE: React is intentionally NOT mocked — component and hook tests
 // render real React via @testing-library/react.
 
-// Mock react-toastify
-jest.mock('react-toastify', () => ({
-  toast: {
+// Mock the inline-notice store: the action object is mocked (components assert
+// on it), while the instance helpers stay real so <InlineNotice/> renders.
+jest.mock('../src/services/notice', () => ({
+  ...jest.requireActual('../src/services/notice'),
+  notice: {
     success: jest.fn(),
     error: jest.fn(),
     info: jest.fn(),
-    warn: jest.fn()
+    warn: jest.fn(),
+    clear: jest.fn()
   }
 }));
 

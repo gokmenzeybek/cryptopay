@@ -10,6 +10,7 @@ import Wallet from './components/Wallet';
 import RequestFlow from './components/RequestFlow';
 import Dashboard from './components/Dashboard';
 import P2PExchange from './components/P2PExchange';
+import InlineNotice from './components/InlineNotice';
 import { XRPLProvider } from './hooks/useXRPL';
 import theme from './theme';
 import { SpeedInsights } from '@vercel/speed-insights/react';
@@ -41,6 +42,7 @@ function App() {
         <MainContent>
           <Header />
           <Content>
+            <InlineNotice />
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/activity" element={<Activity />} />

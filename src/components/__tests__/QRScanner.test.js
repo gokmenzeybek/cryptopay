@@ -12,7 +12,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { toast } from 'react-toastify';
+import { notice } from '../../services/notice';
 import { XRPLProvider } from '../../hooks/useXRPL';
 import QRScanner from '../QRScanner';
 
@@ -102,7 +102,7 @@ describe('QRScanner Component', () => {
       })
     );
 
-    expect(toast.success).toHaveBeenCalledWith('Payment request loaded');
+    expect(notice.success).toHaveBeenCalledWith('Payment request loaded');
     expect(screen.getByText('Payment Request')).toBeInTheDocument();
     expect(screen.getByText('10.5 XRP')).toBeInTheDocument();
     expect(screen.getByText(RECIPIENT)).toBeInTheDocument();
@@ -114,7 +114,7 @@ describe('QRScanner Component', () => {
 
     enterManualData(`${RECIPIENT},7.25,Coffee`);
 
-    expect(toast.success).toHaveBeenCalledWith('Payment request loaded');
+    expect(notice.success).toHaveBeenCalledWith('Payment request loaded');
     expect(screen.getByText('7.25 XRP')).toBeInTheDocument();
     expect(screen.getByText(RECIPIENT)).toBeInTheDocument();
     expect(screen.getByText('Coffee')).toBeInTheDocument();
@@ -125,7 +125,7 @@ describe('QRScanner Component', () => {
 
     enterManualData('not-a-payment-request');
 
-    expect(toast.error).toHaveBeenCalledWith(
+    expect(notice.error).toHaveBeenCalledWith(
       'Invalid QR code format. Please scan a valid payment request QR code.'
     );
   });
@@ -135,7 +135,7 @@ describe('QRScanner Component', () => {
 
     enterManualData(JSON.stringify({ type: 'something_else', foo: 1 }));
 
-    expect(toast.error).toHaveBeenCalledWith(
+    expect(notice.error).toHaveBeenCalledWith(
       'Invalid QR code. Please scan a payment request QR code.'
     );
   });
@@ -145,7 +145,7 @@ describe('QRScanner Component', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /process qr data/i }));
 
-    expect(toast.error).toHaveBeenCalledWith('Please enter QR code data first.');
+    expect(notice.error).toHaveBeenCalledWith('Please enter QR code data first.');
   });
 
   it('sends the payment on confirm and clears the request', async () => {
@@ -169,7 +169,7 @@ describe('QRScanner Component', () => {
     enterManualData(`${RECIPIENT},10,Memo`);
     fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
 
-    expect(toast.info).toHaveBeenCalledWith('Payment cancelled');
+    expect(notice.info).toHaveBeenCalledWith('Payment cancelled');
     expect(screen.queryByText('10 XRP')).not.toBeInTheDocument();
   });
 
@@ -181,7 +181,7 @@ describe('QRScanner Component', () => {
       scannerProps.onError({ name: 'NotAllowedError', message: 'denied' });
     });
 
-    expect(toast.error).toHaveBeenCalledWith(
+    expect(notice.error).toHaveBeenCalledWith(
       'Camera access denied. Please enable camera permissions in your browser or device settings.'
     );
     expect(screen.getByText('denied')).toBeInTheDocument();
@@ -194,7 +194,49 @@ describe('QRScanner Component', () => {
       scannerProps.onDecode(`${RECIPIENT},3,Scan`);
     });
 
-    expect(toast.success).toHaveBeenCalledWith('Payment request loaded');
+    expect(notice.success).toHaveBeenCalledWith('Payment request loaded');
     expect(screen.getByText('3 XRP')).toBeInTheDocument();
+  });
+
+  it('creates a wallet from the no-wallet screen', async () => {
+    mockUseXRPL = buildMock({ wallet: null });
+    renderScanner();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /create new wallet/i }));
+    });
+    expect(mockUseXRPL.createWallet).toHaveBeenCalled();
+    expect(notice.success).toHaveBeenCalledWith('Wallet created successfully!');
+  });
+
+  it('surfaces other scanner error types with a generic message', () => {
+    renderScanner();
+    act(() => {
+      scannerProps.onError({ name: 'NotReadableError', message: 'unreadable' });
+    });
+    expect(notice.error).toHaveBeenCalledWith('Scanner error: unreadable');
+    expect(screen.getByText('unreadable')).toBeInTheDocument();
+  });
+
+  it('swallows sendPayment failures without crashing', async () => {
+    mockUseXRPL = buildMock({ sendPayment: jest.fn().mockRejectedValue(new Error('ledger busy')) });
+    renderScanner();
+    enterManualData(`${RECIPIENT},10,Memo`);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm & send payment/i }));
+    });
+    expect(mockUseXRPL.sendPayment).toHaveBeenCalledWith(RECIPIENT, 10, 'Memo');
+    expect(screen.getByText('10 XRP')).toBeInTheDocument();
+  });
+
+  it('shows an inline error when wallet creation fails', async () => {
+    mockUseXRPL = buildMock({
+      wallet: null,
+      createWallet: jest.fn().mockRejectedValue(new Error('creation failed'))
+    });
+    renderScanner();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /create new wallet/i }));
+    });
+    expect(notice.error).toHaveBeenCalledWith('Error creating wallet: creation failed');
   });
 });

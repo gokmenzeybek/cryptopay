@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { toast } from 'react-toastify';
+import { notice } from '../services/notice';
 import { useXRPL } from '../hooks/useXRPL';
 import authService from '../services/authService';
 import { ClockIcon } from './icons';
+import InlineNotice from './InlineNotice';
 import theme from '../theme';
 
 /**
@@ -433,7 +434,7 @@ const AddFunds = ({ onClose }) => {
   const handleFindSeller = async () => {
     const amt = parseFloat(tryAmount);
     if (!amt || amt <= 0) {
-      toast.error('Please enter an amount.');
+      notice.error('Please enter an amount.');
       return;
     }
     setScreen('matching');
@@ -449,14 +450,14 @@ const AddFunds = ({ onClose }) => {
       });
       const data = await res.json();
       if (!data.success) {
-        toast.error(data.message || 'No sellers available right now.');
+        notice.error(data.message || 'No sellers available right now.');
         setScreen('entry');
         return;
       }
       setMatchResult(data);
       setScreen('instructions');
     } catch (err) {
-      toast.error('Network error. Please try again.');
+      notice.error('Network error. Please try again.');
       setScreen('entry');
     }
   };
@@ -477,18 +478,18 @@ const AddFunds = ({ onClose }) => {
       });
       const data = await res.json();
       if (!data.success) {
-        toast.error(data.message || 'Could not confirm payment.');
+        notice.error(data.message || 'Could not confirm payment.');
         return;
       }
       clearInterval(countdownRef.current);
       setScreen('waiting');
     } catch (err) {
-      toast.error('Network error. Please try again.');
+      notice.error('Network error. Please try again.');
     }
   };
 
   const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text).then(() => toast.success('Copied!')).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => notice.success('Copied!')).catch(() => {});
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -500,6 +501,7 @@ const AddFunds = ({ onClose }) => {
   return (
     <Overlay onClick={e => { if (e.target === e.currentTarget) onClose(); }} id="add-funds-overlay">
       <Sheet id="add-funds-sheet" onClick={e => e.stopPropagation()}>
+        <InlineNotice />
         <DragHandle />
 
         {/* ── ENTRY ── */}
