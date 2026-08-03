@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import styled from 'styled-components';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { useXRPL } from '../hooks/useXRPL';
 import ConfirmSheet from './ConfirmSheet';
+import AddFunds from './AddFunds';
 import { CameraIcon } from './icons';
 import theme from '../theme';
 
@@ -163,6 +164,21 @@ const ReviewButton = styled.button`
   &:disabled { opacity: 0.4; cursor: not-allowed; }
 `;
 
+const AddFundsButton = styled.button`
+  width: 100%;
+  height: 56px;
+  margin-top: 12px;
+  border: 1.5px solid ${theme.color.line};
+  border-radius: ${theme.radius.pill};
+  background: transparent;
+  color: ${theme.color.ink};
+  font-size: 15px;
+  font-weight: 600;
+  font-family: ${theme.font.stack};
+  cursor: pointer;
+  &:hover { border-color: ${theme.color.ink}; }
+`;
+
 const ScanSheet = styled.div`
   margin-top: 12px;
   border-radius: ${theme.radius.card};
@@ -191,7 +207,7 @@ const parsePayload = (text) => {
 };
 
 const SendFlow = () => {
-  const { apiBaseUrl, wallet } = useXRPL();
+  const { apiBaseUrl, wallet, createBurnerWallet } = useXRPL();
   const [searchParams] = useSearchParams();
 
   const [recipient, setRecipient] = useState(searchParams.get('to') || '');
@@ -204,6 +220,13 @@ const SendFlow = () => {
   const [rate, setRate] = useState(null);
   const [scanning, setScanning] = useState(searchParams.get('scan') === '1');
   const [confirming, setConfirming] = useState(false);
+  // Guest payer bootstrap: auto-create a temporary burner wallet on a pay link
+  // and surface the Papara on-ramp. bootingWallet guards the one-shot effect.
+  const [bootedWallet, setBootedWallet] = useState(false);
+  const [bootingWallet, setBootingWallet] = useState(false);
+  const [walletBootFailed, setWalletBootFailed] = useState(false);
+  const [showAddFunds, setShowAddFunds] = useState(false);
+  const bootingRef = useRef(false);
 
   // Live XRP/TRY rate for the fiat toggle (public endpoint)
   useEffect(() => {
@@ -233,6 +256,29 @@ const SendFlow = () => {
       .catch(() => {});
   }, [apiBaseUrl, requestId]);
 
+  // Guest payer bootstrap (M4 on-ramp): a user who opens a pay link or scans
+  // a payment QR without a wallet gets a temporary burner wallet created for
+  // them automatically, then the Papara buy sheet opens pre-filled to cover
+  // the requested amount. No wall, no detour to Home. Manual /pay visits with
+  // no target (recipient empty) keep the normal create/unlock path.
+  useEffect(() => {
+    if (wallet || !apiBaseUrl || !recipient || bootingRef.current || bootedWallet) return;
+    bootingRef.current = true;
+    setBootingWallet(true);
+    createBurnerWallet()
+      .then(() => {
+        setBootedWallet(true);
+        setShowAddFunds(true);
+      })
+      .catch(() => {
+        setWalletBootFailed(true);
+      })
+      .finally(() => {
+        bootingRef.current = false;
+        setBootingWallet(false);
+      });
+  }, [wallet, apiBaseUrl, recipient, bootedWallet, createBurnerWallet]);
+
   const addressValid = isValidAddress(recipient);
   const showValidation = recipient.length > 0;
 
@@ -240,6 +286,9 @@ const SendFlow = () => {
   const amountXrp = unit === 'XRP'
     ? parseFloat(amount) || 0
     : (rate ? (parseFloat(amount) || 0) / rate : 0);
+  // Pre-fill the Papara buy sheet with ~the request amount in TRY so a guest
+  // payer buys roughly what they need. Editable inside the sheet.
+  const presetTry = (rate && amountXrp > 0) ? (amountXrp * rate).toFixed(0) : '';
   const conversionLine = rate && amount
     ? unit === 'XRP'
       ? `≈ ₺${((parseFloat(amount) || 0) * rate).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · 1 XRP = ₺${rate.toFixed(2)}`
@@ -317,13 +366,31 @@ const SendFlow = () => {
         </NoteToggle>
       )}
 
-      {!wallet && (
-        <ValidationLine>Create or unlock your wallet before sending</ValidationLine>
+      {!wallet && bootingWallet && (
+        <ValidationLine>Preparing your temporary wallet…</ValidationLine>
+      )}
+      {!wallet && !bootingWallet && (
+        <ValidationLine>
+          {walletBootFailed
+            ? 'Could not create a temporary wallet — create or unlock one first'
+            : 'Create or unlock your wallet before sending'}
+        </ValidationLine>
       )}
 
       <ReviewButton disabled={!canReview} onClick={() => setConfirming(true)}>
         Review payment
       </ReviewButton>
+
+      <AddFundsButton onClick={() => setShowAddFunds(true)}>
+        Add funds via Papara
+      </AddFundsButton>
+
+      {showAddFunds && (
+        <AddFunds
+          presetTry={presetTry}
+          onClose={() => setShowAddFunds(false)}
+        />
+      )}
 
       {confirming && (
         <ConfirmSheet

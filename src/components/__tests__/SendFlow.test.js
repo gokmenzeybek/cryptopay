@@ -17,12 +17,24 @@ jest.mock('@yudiel/react-qr-scanner', () => ({
   }
 }));
 
+jest.mock('../AddFunds', () => {
+  return {
+    __esModule: true,
+    default: (props) => (
+      <div data-testid="add-funds" data-preset={props.presetTry}>
+        Add funds sheet
+      </div>
+    )
+  };
+});
+
 const ADDR = 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh';
 
 const hookBase = {
   apiBaseUrl: 'http://localhost:5001',
   wallet: { address: ADDR },
-  sendPayment: jest.fn()
+  sendPayment: jest.fn(),
+  createBurnerWallet: jest.fn().mockResolvedValue({ address: ADDR })
 };
 
 const renderFlow = (route = '/') =>
@@ -34,6 +46,8 @@ const renderFlow = (route = '/') =>
 
 beforeEach(() => {
   jest.resetAllMocks();
+  // Re-implement the burner mock after the reset so the auto-bootstrap resolves.
+  hookBase.createBurnerWallet = jest.fn().mockResolvedValue({ address: ADDR });
   useXRPL.mockReturnValue({ ...hookBase });
   window.xrpl = {
     isValidClassicAddress: (a) => typeof a === 'string' && a.startsWith('r') && a.length >= 25
@@ -92,10 +106,49 @@ describe('SendFlow', () => {
     expect(screen.getByDisplayValue('rent')).toBeInTheDocument();
   });
 
-  test('requires a wallet before review is possible', () => {
+  test('requires a wallet before review is possible (no pay link)', () => {
+    useXRPL.mockReturnValue({ ...hookBase, wallet: null });
+    renderFlow('/');
+    expect(screen.getByText(/Create or unlock your wallet/)).toBeInTheDocument();
+    expect(screen.getByText('Review payment')).toBeDisabled();
+  });
+
+  test('wallet-less user opening a pay link gets a burner wallet created once', async () => {
     useXRPL.mockReturnValue({ ...hookBase, wallet: null });
     renderFlow(`/?to=${ADDR}&amount=5`);
+    await waitFor(() => {
+      expect(hookBase.createBurnerWallet).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test('auto-opens the Papara buy sheet pre-filled after wallet boot', async () => {
+    useXRPL.mockReturnValue({ ...hookBase, wallet: null, createBurnerWallet: jest.fn().mockResolvedValue({ address: ADDR }) });
+    renderFlow(`/?to=${ADDR}&amount=5`);
+    await waitFor(() => {
+      const sheet = screen.getByTestId('add-funds');
+      expect(sheet).toBeInTheDocument();
+      expect(sheet.getAttribute('data-preset')).toBe('200');
+    });
+  });
+
+  test('does not auto-create a wallet for a wallet-less plain /pay visit', () => {
+    const createBurnerWallet = jest.fn();
+    useXRPL.mockReturnValue({ ...hookBase, wallet: null, createBurnerWallet });
+    renderFlow('/');
+    expect(createBurnerWallet).not.toHaveBeenCalled();
     expect(screen.getByText(/Create or unlock your wallet/)).toBeInTheDocument();
+  });
+
+  test('falls back to manual wallet hint when auto-create fails', async () => {
+    useXRPL.mockReturnValue({
+      ...hookBase,
+      wallet: null,
+      createBurnerWallet: jest.fn().mockRejectedValue(new Error('SPONSOR_SEED missing'))
+    });
+    renderFlow(`/?to=${ADDR}&amount=5`);
+    await waitFor(() => {
+      expect(screen.getByText(/Could not create a temporary wallet/)).toBeInTheDocument();
+    });
     expect(screen.getByText('Review payment')).toBeDisabled();
   });
 

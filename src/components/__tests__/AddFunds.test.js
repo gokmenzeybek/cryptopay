@@ -74,6 +74,11 @@ describe('AddFunds Component', () => {
     });
   });
 
+  test('pre-fills the TRY amount from presetTry', () => {
+    render(<AddFunds onClose={mockOnClose} presetTry="340" />);
+    expect(screen.getByPlaceholderText('0')).toHaveValue(340);
+  });
+
   test('triggers quick-match and advances to instructions screen', async () => {
     render(<AddFunds onClose={mockOnClose} />);
     const input = screen.getByPlaceholderText('0');

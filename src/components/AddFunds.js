@@ -363,14 +363,15 @@ function fmtSecs(s) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const AddFunds = ({ onClose }) => {
+const AddFunds = ({ onClose, presetTry = '' }) => {
   const { wallet, apiBaseUrl } = useXRPL();
 
   // 4 screens: 'entry' | 'matching' | 'instructions' | 'waiting'
   const [screen, setScreen] = useState('entry');
 
-  // Entry screen state
-  const [tryAmount, setTryAmount] = useState('');
+  // Entry screen state — presetTry pre-fills the TRY amount when the sheet is
+  // opened from a pay link (payer already knows roughly what they need).
+  const [tryAmount, setTryAmount] = useState(String(presetTry));
   const [method, setMethod] = useState('papara');
   const [rate, setRate] = useState(null);
 
