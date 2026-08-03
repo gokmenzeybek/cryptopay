@@ -435,7 +435,7 @@ app.post('/api/auth/verify',
 // once and never persisted server-side. Aggressively rate-limited to prevent
 // account farming.
 app.post('/api/burner/wallets',
-  createRateLimiter(15 * 60 * 1000, parseInt(process.env.RATE_LIMIT_BURNER) || 3),
+  createRateLimiter(15 * 60 * 1000, parseInt(process.env.RATE_LIMIT_BURNER) || 10),
   catchAsync(async (req, res) => {
     const burner = await burnerWalletService.createBurner();
     res.status(201).json({

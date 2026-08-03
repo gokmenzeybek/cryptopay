@@ -13,6 +13,7 @@ process.env.RATE_LIMIT_READ = '100000';
 process.env.RATE_LIMIT_PAYMENT_INTENT = '100000';
 process.env.RATE_LIMIT_CONVERSION = '100000';
 process.env.RATE_LIMIT_EXCHANGE_RATES = '100000';
+process.env.RATE_LIMIT_BURNER = '100000';
 
 // The webhook endpoint refuses to run unconfigured (503 without a secret);
 // the suite signs payloads with this literal (see e2e.test.js createHmac).

@@ -226,7 +226,11 @@ const SendFlow = () => {
   const [bootingWallet, setBootingWallet] = useState(false);
   const [walletBootFailed, setWalletBootFailed] = useState(false);
   const [showAddFunds, setShowAddFunds] = useState(false);
-  const bootingRef = useRef(false);
+  // One-shot guard for the guest bootstrap. Unlike bootedWallet (which is
+  // still false on failure), this ref persists across renders so a failed
+  // attempt never silently auto-retries — which otherwise hammered the
+  // /api/burner/wallets rate limit into a 429 loop.
+  const bootAttemptedRef = useRef(false);
 
   // Live XRP/TRY rate for the fiat toggle (public endpoint)
   useEffect(() => {
@@ -262,8 +266,8 @@ const SendFlow = () => {
   // the requested amount. No wall, no detour to Home. Manual /pay visits with
   // no target (recipient empty) keep the normal create/unlock path.
   useEffect(() => {
-    if (wallet || !apiBaseUrl || !recipient || bootingRef.current || bootedWallet) return;
-    bootingRef.current = true;
+    if (wallet || !apiBaseUrl || !recipient || bootAttemptedRef.current || bootedWallet) return;
+    bootAttemptedRef.current = true;
     setBootingWallet(true);
     createBurnerWallet()
       .then(() => {
@@ -274,7 +278,6 @@ const SendFlow = () => {
         setWalletBootFailed(true);
       })
       .finally(() => {
-        bootingRef.current = false;
         setBootingWallet(false);
       });
   }, [wallet, apiBaseUrl, recipient, bootedWallet, createBurnerWallet]);
