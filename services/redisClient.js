@@ -66,6 +66,7 @@ async function getClient() {
       });
       await c.connect();
       client = c;
+      logger.info('Redis connected', { url: redisUrl() ? redisUrl().replace(/:[^:@\/]*@/, ':****@') : null });
       return c;
     })().catch((err) => {
       logger.warn('Redis unavailable — falling back to in-memory store', { error: err.message });
