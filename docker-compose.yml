@@ -56,6 +56,11 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_REQUESTS=${LOG_REQUESTS:-false}
       
+      # Redis (optional, e.g. Render Key Value free tier). When set, shared
+      # rate-limit counters, WS pub/sub, and burner-seed mirror are enabled.
+      - REDIS_URL=${REDIS_URL:-}
+      - BURNER_SEED_TTL_MS=${BURNER_SEED_TTL_MS:-3600000}
+      
       # Security Configuration
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       

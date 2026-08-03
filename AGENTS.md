@@ -40,7 +40,11 @@ npm run lint             # eslint src/ server*.js middleware/ services/ database
 npm run health           # curl http://localhost:5001/api/health
 ```
 
-Setup: copy `.env.example` to `.env` and fill in values. Key variables: `POSTGRES_HOST/PORT/DB/USER/PASSWORD`, `PORT` (5001), `JWT_SECRET`, `XRPL_TESTNET_URL`, `PAPARA_API_KEY`/`PAPARA_ENVIRONMENT`/`PAPARA_MERCHANT_ID`, `PAPARA_WEBHOOK_SECRET`, `MODERATOR_API_KEY`, rate-limit knobs (`RATE_LIMIT_*`), `RATE_CACHE_TTL_SECONDS` (default 300).
+Setup: copy `.env.example` to `.env` and fill in values. Key variables: `POSTGRES_HOST/PORT/DB/USER/PASSWORD`, `PORT` (5001), `JWT_SECRET`, `XRPL_TESTNET_URL`, `PAPARA_API_KEY`/`PAPARA_ENVIRONMENT`/`PAPARA_MERCHANT_ID`, `PAPARA_WEBHOOK_SECRET`, `MODERATOR_API_KEY`, rate-limit knobs (`RATE_LIMIT_*`), `RATE_CACHE_TTL_SECONDS` (default 300), and optional `REDIS_URL`/`BURNER_SEED_TTL_MS` (see below).
+
+### Multi-instance scaling (Redis, optional)
+
+`REDIS_URL` (e.g. Render Key Value free tier) enables cross-node operation for the three single-node blockers — rate-limit counters, WebSocket pub/sub, and the burner-seed store. Everything flows through `services/redisClient.js`, the **single Redis touchpoint**; when `REDIS_URL` is unset or the connection fails, it falls back to in-memory Maps / a local pub/sub bus (tests, local dev, single-node deploys behave exactly as before). Rate limiting goes through an **async** `createRedisRateLimiter` (atomic INCR + anchored TTL, fails open on store errors); the synchronous `createInMemoryRateLimiter` preserves historical behavior. Burner seeds are mirrored to `burner:seed:{address}` (AES-256-GCM blob, `BURNER_SEED_TTL_MS`, default 3600000) so a multi-node sweeper can still destroy them. WebSocket broadcasts publish on `cryptopay:order_status` / `cryptopay:chat` and are delivered only to local sockets via `deliverOrderUpdateLocally` / `deliverChatLocally` (no double-delivery). See `render.yaml` for wiring on Render.
 
 ### Docker / Deployment
 

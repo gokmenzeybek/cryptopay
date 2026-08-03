@@ -3,7 +3,11 @@
  * Prevents abuse of API endpoints
  */
 
-// In-memory store for rate limiting
+const logger = require('../utils/logger');
+const { isRedisConfigured, incrWithTtl } = require('../services/redisClient');
+
+// In-memory store for rate limiting (fast path + fallback). When Redis is
+// configured the counters live in Redis so they are shared across instances.
 const requestCounts = new Map();
 
 // Configuration
@@ -50,9 +54,22 @@ function cleanupOldEntries() {
 setInterval(cleanupOldEntries, 5 * 60 * 1000).unref();
 
 /**
- * Create rate limiter middleware
+ * Create rate limiter middleware. Dispatches to the Redis-backed path when
+ * REDIS_URL is set (shared counters across instances); otherwise uses the
+ * synchronous in-memory store so single-node behavior is unchanged.
  */
 function createRateLimiter(type = 'default') {
+  if (isRedisConfigured()) {
+    return createRedisRateLimiter(type);
+  }
+  return createInMemoryRateLimiter(type);
+}
+
+/**
+ * In-memory rate limiter (synchronous; the historical behavior). Keyed per
+ * (type, client) with fixed-window semantics.
+ */
+function createInMemoryRateLimiter(type = 'default') {
   const config = RATE_LIMITS[type] || RATE_LIMITS.default;
 
   return function rateLimiter(req, res, next) {
@@ -123,6 +140,50 @@ function createRateLimiter(type = 'default') {
     }
 
     next();
+  };
+}
+
+/**
+ * Redis-backed rate limiter (asynchronous). Counters are shared across all
+ * app instances via atomic INCR + anchored-window TTL, so traffic split across
+ * nodes shares one budget. Stats/reset helpers below remain in-memory
+ * (best-effort) — the authoritative state lives in Redis.
+ */
+function createRedisRateLimiter(type = 'default') {
+  const config = RATE_LIMITS[type] || RATE_LIMITS.default;
+
+  return async function rateLimiter(req, res, next) {
+    const clientId = getClientId(req);
+    const key = `rl:${type}_${clientId}`;
+    const now = Date.now();
+
+    try {
+      const count = await incrWithTtl(key, config.windowMs);
+      const remaining = Math.max(0, config.maxRequests - count);
+
+      res.setHeader('X-RateLimit-Limit', config.maxRequests);
+      res.setHeader('X-RateLimit-Remaining', remaining);
+      res.setHeader('X-RateLimit-Reset', new Date(now + config.windowMs).toISOString());
+
+      if (count > config.maxRequests) {
+        const retryAfter = Math.ceil(config.windowMs / 1000);
+        res.setHeader('Retry-After', retryAfter);
+        return res.status(429).json({
+          success: false,
+          error: 'Rate limit exceeded',
+          message: `Too many requests. Please try again in ${retryAfter} seconds.`,
+          retryAfter: retryAfter,
+          limit: config.maxRequests,
+          windowMs: config.windowMs
+        });
+      }
+
+      return next();
+    } catch (err) {
+      // Fail open: a rate-limit store hiccup must not block legitimate traffic.
+      logger.warn('Rate limit store unavailable — allowing request', { error: err.message });
+      return next();
+    }
   };
 }
 

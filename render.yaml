@@ -28,6 +28,12 @@ services:
         value: "false"
       - key: CORS_ORIGINS
         sync: false
+      # Render Key Value free tier: create a Key Value instance and add its
+      # Internal Connection String here. When set, the app uses Redis for
+      # shared rate-limit counters, WebSocket pub/sub, and the burner-seed
+      # mirror; when left empty it transparently falls back to in-memory.
+      - key: REDIS_URL
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET

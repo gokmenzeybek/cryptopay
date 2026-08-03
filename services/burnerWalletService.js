@@ -21,6 +21,7 @@ const crypto = require('crypto');
 const { pool } = require('../database/connection');
 const { WalletsDAL, SystemSettingsDAL } = require('../database/dal');
 const logger = require('../utils/logger');
+const { isRedisConfigured, set, get } = require('./redisClient');
 
 // XRP has 6 decimal places: 1 XRP = 1,000,000 drops
 const DROPS_PER_XRP = 1000000;
@@ -89,7 +90,10 @@ class BurnerWalletService {
 
   /**
    * Register a burner seed in memory with a TTL. Encrypted using AES-256-GCM
-   * to protect against RAM dumps.
+   * to protect against RAM dumps. The in-memory copy remains the fast path;
+   * when Redis is configured the (pre-encrypted) record is also mirrored there
+   * with the same TTL so a different app node's sweeper can still recover and
+   * sign the AccountDelete for a burner created here.
    */
   _rememberSeed(address, seed) {
     const iv = crypto.randomBytes(12);
@@ -104,10 +108,56 @@ class BurnerWalletService {
       authTag,
       expiresAt: Date.now() + SEED_TTL_MS
     });
+
+    if (isRedisConfigured()) {
+      // Mirror the same encrypted blob + keying material so _seedFor can
+      // rebuild the seed on any node. Fire-and-forget; never blocks creation.
+      set(`burner:seed:${address}`, JSON.stringify({ encryptedSeed, iv: iv.toString('hex'), authTag }), SEED_TTL_MS).catch((err) => {
+        logger.warn('Could not mirror burner seed to Redis', { error: err.message });
+      });
+    }
+  }
+
+  /**
+   * Rebuild a seed record persisted by _rememberSeed (string <=> object).
+   * Returns null for missing/corrupt entries.
+   */
+  _restoreSeedRecord(record) {
+    try {
+      const parsed = typeof record === 'string' ? JSON.parse(record) : record;
+      if (!parsed || !parsed.encryptedSeed || !parsed.iv || !parsed.authTag) return null;
+      return {
+        encryptedSeed: parsed.encryptedSeed,
+        iv: parsed.iv,
+        authTag: parsed.authTag,
+        expiresAt: Date.now() + SEED_TTL_MS
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Decrypt a seed record to its plaintext value, or null on failure.
+   */
+  _decryptSeedRecord(record) {
+    if (!record) return null;
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', this._ramKey, Buffer.from(record.iv, 'hex'));
+      decipher.setAuthTag(Buffer.from(record.authTag, 'hex'));
+      let seed = decipher.update(record.encryptedSeed, 'hex', 'utf8');
+      seed += decipher.final('utf8');
+      return seed;
+    } catch (err) {
+      logger.error('Failed to decrypt in-memory burner seed', { error: err.message, address: record.address || undefined });
+      return null;
+    }
   }
 
   /**
    * Fetch a burner's seed if it is still held in memory and not expired.
+   * Synchronous fast path — the sweeper falls back to Redis (via
+   * _seedFromRedis) when this returns null.
    */
   _seedFor(address) {
     const entry = this.seeds.get(address);
@@ -119,15 +169,26 @@ class BurnerWalletService {
       return null;
     }
 
+    return this._decryptSeedRecord({ ...entry, address });
+  }
+
+  /**
+   * Recover a burner's seed from the Redis mirror (used when the in-memory
+   * copy is gone — e.g. this node did not create the burner). Rebuilding the
+   * record on read keeps a remote-created seed in memory for the rest of the
+   * TTL, then decrypts it. Returns null when Redis is off or the key is gone.
+   */
+  async _seedFromRedis(address) {
+    if (!isRedisConfigured()) return null;
     try {
-      const decipher = crypto.createDecipheriv('aes-256-gcm', this._ramKey, Buffer.from(entry.iv, 'hex'));
-      decipher.setAuthTag(Buffer.from(entry.authTag, 'hex'));
-      let seed = decipher.update(entry.encryptedSeed, 'hex', 'utf8');
-      seed += decipher.final('utf8');
-      return seed;
+      const record = await get(`burner:seed:${address}`);
+      if (!record) return null;
+      const restored = this._restoreSeedRecord(record);
+      if (!restored) return null;
+      this.seeds.set(address, restored);
+      return this._decryptSeedRecord({ ...restored, address });
     } catch (err) {
-      logger.error('Failed to decrypt in-memory burner seed', { error: err.message, address });
-      this.seeds.delete(address);
+      logger.warn('Failed to read burner seed from Redis', { error: err.message });
       return null;
     }
   }
@@ -279,7 +340,12 @@ class BurnerWalletService {
    *   - uses failHard so a failed delete doesn't burn the fee.
    */
   async destroyBurner(address) {
-    const seed = this._seedFor(address);
+    let seed = this._seedFor(address);
+    if (!seed) {
+      // Not in memory — this node may not have created the burner. Try the
+      // Redis mirror before giving up so a multi-node sweeper can still delete.
+      seed = await this._seedFromRedis(address);
+    }
     if (!seed) {
       logger.warn('Burner sweep skipped: seed no longer held in memory', { address });
       return false;

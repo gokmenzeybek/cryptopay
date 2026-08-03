@@ -2,6 +2,7 @@ const ws = require('ws');
 const jwt = require('jsonwebtoken');
 const { pool } = require('../database/connection');
 const logger = require('../utils/logger');
+const { isRedisConfigured, publish, subscribe } = require('./redisClient');
 
 // No fallback: JWT_SECRET is mandatory (validated at startup in production;
 // provided by tests/setup.js under Jest).
@@ -12,6 +13,13 @@ const wsClients = new Map();
 
 // Maximum chat messages retained per order
 const MAX_CHAT_HISTORY = 200;
+
+// Redis pub/sub channels for cross-node broadcasts. When REDIS_URL is set,
+// order-status and chat events are published here so every app node forwards
+// them to its own local sockets (Redis delivers to the other nodes only, so
+// there is no double-delivery on the publishing node).
+const ORDER_STATUS_CHANNEL = 'cryptopay:order_status';
+const CHAT_CHANNEL = 'cryptopay:chat';
 
 /**
  * Authenticate a WebSocket connection from an `auth` message payload.
@@ -50,6 +58,37 @@ async function authenticateSocket(token) {
     xrplAddress: dbUser.address,
     username: decoded.username || `User_${dbUser.address.substring(0, 8)}`
   };
+}
+
+/**
+ * Deliver an order-status update to the LOCAL sockets that observe it:
+ * room participants plus every authenticated socket (live order-book feed).
+ */
+function deliverOrderUpdateLocally(orderId, status) {
+  const payload = JSON.stringify({ event: 'order_status', data: { orderId, status } });
+  for (const [client, clientData] of wsClients.entries()) {
+    if (client.readyState !== ws.OPEN) continue;
+    const inRoom = clientData.rooms && clientData.rooms.has(`order_${orderId}`);
+    if (inRoom || clientData.authenticated) {
+      client.send(payload);
+    }
+  }
+}
+
+/**
+ * Deliver a chat message to the LOCAL sockets that joined the order room.
+ */
+function deliverChatLocally(orderId, msg) {
+  const payload = JSON.stringify({ event: 'chat_message', orderId, data: msg });
+  for (const [otherSocket, otherClient] of wsClients.entries()) {
+    if (
+      otherSocket.readyState === ws.OPEN &&
+      otherClient.rooms &&
+      otherClient.rooms.has(`order_${orderId}`)
+    ) {
+      otherSocket.send(payload);
+    }
+  }
 }
 
 /**
@@ -171,15 +210,9 @@ function initWebSocketServer(server) {
           );
 
           // Broadcast to all clients in this order room
-          const payload = JSON.stringify({ event: 'chat_message', data: msg });
-          for (const [otherSocket, otherClient] of wsClients.entries()) {
-            if (
-              otherSocket.readyState === ws.OPEN &&
-              otherClient.rooms &&
-              otherClient.rooms.has(`order_${orderId}`)
-            ) {
-              otherSocket.send(payload);
-            }
+          deliverChatLocally(orderId, msg);
+          if (isRedisConfigured()) {
+            publish(CHAT_CHANNEL, JSON.stringify({ event: 'chat_message', orderId, data: msg })).catch(() => {});
           }
           return;
         }
@@ -213,6 +246,34 @@ function initWebSocketServer(server) {
     });
   });
 
+  // Cross-node broadcasts: when Redis is configured, subscribe to the order
+  // status and chat channels and forward incoming events to this node's local
+  // sockets. Fallback mode (no REDIS_URL) skips this entirely — the local
+  // delivery helpers below are all that is needed on a single node.
+  if (isRedisConfigured()) {
+    subscribe(ORDER_STATUS_CHANNEL, (message) => {
+      try {
+        const parsed = JSON.parse(message);
+        if (parsed && parsed.event === 'order_status' && parsed.data) {
+          deliverOrderUpdateLocally(parsed.data.orderId, parsed.data.status);
+        }
+      } catch (err) {
+        logger.warn('Ignoring malformed order-status broadcast', { error: err.message });
+      }
+    }).catch(() => {});
+
+    subscribe(CHAT_CHANNEL, (message) => {
+      try {
+        const parsed = JSON.parse(message);
+        if (parsed && parsed.event === 'chat_message' && parsed.orderId && parsed.data) {
+          deliverChatLocally(parsed.orderId, parsed.data);
+        }
+      } catch (err) {
+        logger.warn('Ignoring malformed chat broadcast', { error: err.message });
+      }
+    }).catch(() => {});
+  }
+
   return { wss, wsClients };
 }
 
@@ -222,13 +283,9 @@ function initWebSocketServer(server) {
  * (see useOrderFeed hook) can refresh on demand without polling.
  */
 function broadcastOrderUpdate(orderId, status) {
-  const payload = JSON.stringify({ event: 'order_status', data: { orderId, status } });
-  for (const [client, clientData] of wsClients.entries()) {
-    if (client.readyState !== ws.OPEN) continue;
-    const inRoom = clientData.rooms && clientData.rooms.has(`order_${orderId}`);
-    if (inRoom || clientData.authenticated) {
-      client.send(payload);
-    }
+  deliverOrderUpdateLocally(orderId, status);
+  if (isRedisConfigured()) {
+    publish(ORDER_STATUS_CHANNEL, JSON.stringify({ event: 'order_status', data: { orderId, status } })).catch(() => {});
   }
 }
 
