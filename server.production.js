@@ -47,6 +47,7 @@ const p2pMatchingService = require('./services/p2pMatchingService');
 const xrplEscrowService = require('./services/xrplEscrowService');
 const xrplClientService = require('./services/xrplClientService');
 const burnerWalletService = require('./services/burnerWalletService');
+const lendingService = require('./services/lendingService');
 const { initWebSocketServer, broadcastOrderUpdate } = require('./services/websocketService');
 
 // Import database modules
@@ -1490,9 +1491,21 @@ app.post('/api/p2p/prepare-escrow',
       });
     }
 
-    // Build unsigned EscrowCreate JSON (seller = authenticated user)
+    // Lending marketplace: when the reserve is configured, escrow-sourced from
+    // the platform reserve (lend) instead of the seller. The sell side's credit
+    // is authorized here, but the outstanding balance is only escalated when the
+    // escrow is actually submitted (submit-escrow-hash).
+    const reserveBacked = lendingService.reserveEnabled();
+    if (reserveBacked) {
+      await lendingService.authorizeLend(sellerAddress, requestedXrp);
+    }
+    const escrowOwnerAddress = reserveBacked
+      ? lendingService.reserveAddress()
+      : req.user.address;
+
+    // Build unsigned EscrowCreate JSON (source = reserve lend or seller)
     const prepared = xrplEscrowService.prepareEscrowCreate({
-      sourceAddress: req.user.address,
+      sourceAddress: escrowOwnerAddress,
       destinationAddress,
       xrpAmount: requestedXrp,
       orderId
@@ -1504,7 +1517,9 @@ app.post('/api/p2p/prepare-escrow',
     if (['none', 'prepared', null, undefined].includes(order.escrow_status)) {
       await P2POrdersDAL.updateEscrow(orderId, {
         escrow_status: xrplEscrowService.ESCROW_STATUS.PREPARED,
-        escrow_owner: req.user.address,
+        escrow_owner: escrowOwnerAddress,
+        escrow_source: escrowOwnerAddress,
+        lent_xrp: reserveBacked ? requestedXrp : 0,
         escrow_condition: prepared.condition,
         escrow_preimage: prepared.fulfillment,
         escrow_cancel_after: new Date(Date.now() + xrplEscrowService.CANCEL_AFTER_SECONDS * 1000).toISOString()
@@ -1572,6 +1587,25 @@ app.post('/api/p2p/submit-escrow-hash',
       escrow_created_at: new Date().toISOString()
     });
 
+    // Lending marketplace: when the escrow was sourced from the reserve, escalate
+    // the lend against the seller's credit line once it is on-chain. Guarded by
+    // the pre-lock escrow status so re-submission never double-counts.
+    if (
+      lendingService.reserveEnabled()
+      && (order.escrow_status === 'prepared' || order.escrow_status === 'none')
+      && order.escrow_source === lendingService.reserveAddress()
+    ) {
+      const escrowOrderType = order.order_type || order.type;
+      const escrowCreator = order.xrpl_address || order.xrplAddress;
+      const escrowCounterparty = order.counterparty_address || order.counterpartyAddress;
+      const escrowSeller = escrowOrderType === 'sell' ? escrowCreator : escrowCounterparty;
+      const lentXrp = Number(order.lent_xrp || 0);
+      if (lentXrp > 0) {
+        await lendingService.reserveLend(escrowSeller, lentXrp);
+        logger.logP2P('reserve_lend_escalated', { orderId, seller: escrowSeller, lentXrp });
+      }
+    }
+
     logger.logP2P('escrow_locked', { orderId, txHash });
 
     res.json({
@@ -1634,6 +1668,101 @@ app.post('/api/p2p/confirm-escrow-completion',
       status: completion.escrowStatus,
       orderId,
       txHash
+    });
+  })
+);
+
+// ==============================================================================
+// LENDING MARKETPLACE — SETTLEMENT (platform as XRP reserve)
+// ==============================================================================
+
+// Settle a completed trade: compute the platform's TRY cut, record it in
+// reserve_settlements, reconcile the lend back to the reserve, and mark the
+// seller's net TRY payout as pending (executed via Papara when configured).
+// Idempotent per order (only settles an order still in 'pending').
+// See docs/LENDING_MARKETPLACE.md.
+app.post('/api/p2p/settle',
+  authMiddleware,
+  adminMiddleware,
+  createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_CONVERSION) || 20),
+  [
+    body('orderId').notEmpty().withMessage('Order ID is required'),
+    validateRequest
+  ],
+  catchAsync(async (req, res) => {
+    const { orderId } = req.body;
+
+    const order = await P2POrdersDAL.getById(orderId);
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+        message: 'Order not found'
+      });
+    }
+
+    if (order.status !== 'completed') {
+      return res.status(409).json({
+        success: false,
+        error: 'Conflict',
+        message: `Cannot settle order in status: ${order.status} — only completed trades settle`
+      });
+    }
+
+    if (order.settlement_status === 'settled') {
+      return res.status(200).json({
+        success: true,
+        message: 'Order already settled',
+        alreadySettled: true
+      });
+    }
+
+    // Trade parties (seller receives the net TRY payout)
+    const orderType = order.order_type || order.type;
+    const creatorAddress = order.xrpl_address || order.xrplAddress;
+    const counterpartyAddress = order.counterparty_address || order.counterpartyAddress;
+    const sellerAddress = orderType === 'sell' ? creatorAddress : counterpartyAddress;
+
+    // Gross TRY the buyer cleared through the platform (the only cut basis)
+    const grossTry = Number(order.amount_try || order.amountTry || order.tryAmount || 0);
+    const lentXrp = Number(order.lent_xrp || 0);
+
+    const settlement = await lendingService.recordSettlement({
+      orderId,
+      sellerAddress,
+      grossTry,
+      lentXrp
+    });
+
+    await P2POrdersDAL.update(orderId, {
+      settlement_status: 'settled',
+      gross_try: settlement.gross_try,
+      cut_try: settlement.cut_try,
+      seller_payout_try: settlement.seller_payout_try,
+      settled_at: new Date().toISOString()
+    });
+
+    logger.logP2P('trade_settled', {
+      orderId,
+      grossTry: settlement.gross_try,
+      cutTry: settlement.cut_try,
+      sellerPayoutTry: settlement.seller_payout_try
+    });
+
+    res.json({
+      success: true,
+      settlement: {
+        id: settlement.id,
+        orderId,
+        sellerAddress,
+        grossTry: settlement.gross_try,
+        cutTry: settlement.cut_try,
+        cutPercent: settlement.cut_percent,
+        sellerPayoutTry: settlement.seller_payout_try,
+        lentXrp: settlement.lent_xrp,
+        status: settlement.status,
+        message: 'Cut recorded; seller payout pending via Papara'
+      }
     });
   })
 );

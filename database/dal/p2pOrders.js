@@ -11,7 +11,8 @@ const FULL_COLUMNS = `id, order_id, xrpl_address, order_type, amount_xrp, amount
        payment_confirmed_at, completed_at, expires_at, dispute_reason,
        dispute_created_at, escrow_status, escrow_transaction_hash, escrow_sequence,
        escrow_owner, escrow_condition, escrow_created_at, escrow_finished_at,
-       escrow_cancel_after, escrow_preimage, metadata`;
+       escrow_cancel_after, escrow_preimage, metadata, escrow_source, lent_xrp,
+       settlement_status, gross_try, cut_try, seller_payout_try, settled_at`;
 
 class P2POrdersDAL {
   /**
@@ -346,6 +347,8 @@ class P2POrdersDAL {
       escrow_finished_at: 'escrow_finished_at',
       escrow_cancel_after: 'escrow_cancel_after',
       escrow_preimage: 'escrow_preimage',
+      escrow_source: 'escrow_source',
+      lent_xrp: 'lent_xrp',
       escrowStatus: 'escrow_status',
       escrowTransactionHash: 'escrow_transaction_hash',
       escrowSequence: 'escrow_sequence',
@@ -507,7 +510,13 @@ class P2POrdersDAL {
       escrowSequence: 'escrow_sequence',
       escrowOwner: 'escrow_owner',
       escrowCondition: 'escrow_condition',
-      escrowPreimage: 'escrow_preimage'
+      escrowPreimage: 'escrow_preimage',
+      escrowSource: 'escrow_source',
+      lentXrp: 'lent_xrp',
+      settlementStatus: 'settlement_status',
+      grossTry: 'gross_try',
+      cutTry: 'cut_try',
+      sellerPayoutTry: 'seller_payout_try'
     };
 
     const timestamps = {
@@ -519,7 +528,8 @@ class P2POrdersDAL {
       disputeCreatedAt: 'dispute_created_at',
       escrowCreatedAt: 'escrow_created_at',
       escrowFinishedAt: 'escrow_finished_at',
-      escrowCancelAfter: 'escrow_cancel_after'
+      escrowCancelAfter: 'escrow_cancel_after',
+      settledAt: 'settled_at'
     };
 
     const allMappings = { ...mappings, ...timestamps };

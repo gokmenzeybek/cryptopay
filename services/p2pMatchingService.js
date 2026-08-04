@@ -424,8 +424,8 @@ async function lockEscrowForOrder(order, { txHash, offerSequence, callerAddress 
     throw new Error('Cannot determine trade parties for escrow verification');
   }
 
-  if (callerAddress !== sellerAddress) {
-    const err = new Error('Only the seller (escrow owner) can submit the escrow hash');
+  if (callerAddress !== sellerAddress && callerAddress !== (order.escrow_owner || order.escrowOwner)) {
+    const err = new Error('Only the escrow owner (seller or reserve) can submit the escrow hash');
     err.statusCode = 403;
     throw err;
   }
@@ -449,9 +449,10 @@ async function lockEscrowForOrder(order, { txHash, offerSequence, callerAddress 
     throw new Error('No escrow condition recorded for this order — prepare escrow first');
   }
 
+  const escrowOwner = order.escrow_owner || order.escrowOwner || sellerAddress;
   const verifyResult = await xrplVerificationService.verifyEscrowCreate(xrplClient, {
     hash: txHash,
-    expectedOwner: sellerAddress,
+    expectedOwner: escrowOwner,
     expectedDestination: buyerAddress,
     expectedAmountXrp: expectedXrpAmount,
     expectedCondition,
