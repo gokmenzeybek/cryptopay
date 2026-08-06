@@ -84,8 +84,8 @@ describe('database/connection', () => {
 
       const pool = mockPoolInstances[0];
       expect(pool.config).toMatchObject({
-        max: 20,
-        min: 0,
+        max: 50,
+        min: 5,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000
       });

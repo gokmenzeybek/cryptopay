@@ -359,8 +359,39 @@ async function escrowExistsOnLedger(client, { owner, transactionHash }) {
   }
 }
 
+/**
+ * Verify a payment via XRPL subscription (real-time) with polling fallback.
+ * Waits for the transaction to appear on-chain via WebSocket subscription,
+ * then falls back to polling if the subscription times out.
+ * @param {xrpl.Client} client - XRPL client
+ * @param {Object} params - { hash, expectedDestination, minAmountXrp }
+ * @param {number} [timeout=30000] - Subscription timeout in ms
+ * @returns {Promise<{ verified: boolean, reason?: string, tx?: Object }>}
+ */
+async function verifyPaymentViaSubscription(client, params, timeout = 30000) {
+  const { trackTransaction } = require('./xrplSubscriptionService');
+
+  try {
+    const result = await trackTransaction(params.hash, { timeout });
+
+    if (result.result !== 'tesSUCCESS') {
+      return { verified: false, reason: `Transaction failed: ${result.result}`, tx: result };
+    }
+
+    if (params.expectedDestination && result.destination !== params.expectedDestination) {
+      return { verified: false, reason: 'Destination mismatch', tx: result };
+    }
+
+    return { verified: true, tx: result };
+  } catch (err) {
+    logger.warn('Subscription verification timed out, falling back to polling', { hash: params.hash });
+    return verifyPayment(client, params);
+  }
+}
+
 module.exports = {
   verifyPayment,
+  verifyPaymentViaSubscription,
   verifyEscrowCreate,
   verifyEscrowCompletion,
   escrowExistsOnLedger,

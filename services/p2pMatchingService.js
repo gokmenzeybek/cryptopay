@@ -425,7 +425,7 @@ async function lockEscrowForOrder(order, { txHash, offerSequence, callerAddress 
   }
 
   if (callerAddress !== sellerAddress && callerAddress !== (order.escrow_owner || order.escrowOwner)) {
-    const err = new Error('Only the escrow owner (seller or reserve) can submit the escrow hash');
+    const err = new Error('Only the seller (escrow owner) can submit the escrow hash');
     err.statusCode = 403;
     throw err;
   }

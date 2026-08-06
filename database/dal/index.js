@@ -10,6 +10,7 @@ const P2POrdersDAL = require('./p2pOrders');
 const PaparaPaymentsDAL = require('./paparaPayments');
 const SystemSettingsDAL = require('./systemSettings');
 const ChatMessagesDAL = require('./chatMessages');
+const WebhookEventsDAL = require('./webhookEvents');
 
 module.exports = {
   WalletsDAL,
@@ -18,5 +19,6 @@ module.exports = {
   P2POrdersDAL,
   PaparaPaymentsDAL,
   SystemSettingsDAL,
-  ChatMessagesDAL
+  ChatMessagesDAL,
+  WebhookEventsDAL
 };

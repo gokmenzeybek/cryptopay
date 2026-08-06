@@ -8,11 +8,10 @@ module.exports = {
     {
       name: 'cryptopay',
       script: 'server.production.js',
-      // WebSocket clients and in-memory rate-limit state are per-process, so run a
-      // single instance. Scaling beyond one instance requires a Redis-backed WS adapter
-      // and shared rate-limit store — out of scope for this PRD.
-      instances: 1,
-      exec_mode: 'fork',
+      // Cluster mode: use all CPU cores. Requires Redis for cross-node WS delivery
+      // and shared rate-limit store. Set PM2_INSTANCES to limit core usage.
+      instances: process.env.PM2_INSTANCES || 'max',
+      exec_mode: 'cluster',
 
       // Environment: default to production so an unqualified `pm2 start` is safe.
       env: {

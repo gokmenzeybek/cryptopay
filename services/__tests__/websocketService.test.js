@@ -19,7 +19,19 @@ jest.mock('../../database/connection', () => ({
 }));
 
 const { pool } = require('../../database/connection');
-const { initWebSocketServer, broadcastOrderUpdate, wsClients } = require('../../services/websocketService');
+const {
+  initWebSocketServer,
+  broadcastOrderUpdate,
+  deliverWalletUpdateLocally,
+  getConnectedWalletAddresses,
+  getRoomMemberCount,
+  getDeadConnectionCount,
+  getStalledConnections,
+  getAverageBufferUsage,
+  safeSocketSend,
+  wsClients
+} = require('../../services/websocketService');
+const { emit, EVENTS } = require('../../services/eventBus');
 
 const ADDRESS = 'r' + 'a'.repeat(33);
 const OTHER_ADDRESS = 'r' + 'b'.repeat(33);
@@ -77,6 +89,46 @@ describe('WebSocket service hardening', () => {
       });
     });
   }
+
+  it('handles normal sends, send failures, and backpressure termination', () => {
+    const socket = {
+      bufferedAmount: 0,
+      send: jest.fn(),
+      terminate: jest.fn()
+    };
+
+    expect(safeSocketSend(socket, 'ok')).toBe(true);
+    expect(socket.send).toHaveBeenCalledWith('ok');
+
+    socket.send.mockImplementationOnce(() => { throw new Error('closed'); });
+    expect(safeSocketSend(socket, 'fails')).toBe(false);
+
+    socket.bufferedAmount = 2 * 1024 * 1024;
+    for (let i = 0; i < 5; i++) {
+      expect(safeSocketSend(socket, 'backed-up')).toBe(false);
+    }
+    expect(socket.terminate).toHaveBeenCalledTimes(1);
+    expect(getStalledConnections()).toBe(1);
+  });
+
+  it('reports authenticated wallet connections and average buffers', () => {
+    const first = { readyState: WebSocket.OPEN, bufferedAmount: 10, send: jest.fn() };
+    const second = { readyState: WebSocket.OPEN, bufferedAmount: 30, send: jest.fn() };
+    wsClients.set(first, {
+      authenticated: true,
+      userContext: { xrplAddress: ADDRESS }
+    });
+    wsClients.set(second, {
+      authenticated: true,
+      userContext: { xrplAddress: ADDRESS }
+    });
+
+    expect(getConnectedWalletAddresses()).toEqual([ADDRESS]);
+    expect(deliverWalletUpdateLocally(ADDRESS, { balance: '10' })).toBe(2);
+    expect(getAverageBufferUsage()).toBe(20);
+    wsClients.delete(first);
+    wsClients.delete(second);
+  });
 
   it('rejects non-auth actions before authentication', async () => {
     pool.query.mockResolvedValue({ rows: [] });
@@ -179,6 +231,107 @@ describe('WebSocket service hardening', () => {
     expect(msg.event).toBe('error');
     expect(msg.code).toBe(401);
     ws.close();
+  });
+
+  it('rejects a valid JWT that has no wallet address', async () => {
+    pool.query.mockResolvedValue({ rows: [] });
+    const ws = await connect();
+    ws.send(JSON.stringify({ action: 'auth', token: jwt.sign({}, process.env.JWT_SECRET) }));
+
+    const msg = await waitForMessage(ws);
+    expect(msg).toMatchObject({ event: 'error', code: 401 });
+    await waitForClose(ws);
+  });
+
+  it('handles missing and forbidden orders during room join', async () => {
+    pool.query
+      .mockResolvedValueOnce({ rows: [{ id: 1, address: ADDRESS, is_active: true }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ order_id: 'private', xrpl_address: OTHER_ADDRESS, counterparty_address: null }] });
+    const ws = await connect();
+    ws.send(JSON.stringify({ action: 'auth', token: token() }));
+    await waitForMessage(ws);
+    ws.send(JSON.stringify({ action: 'join', orderId: 'missing' }));
+    expect(await waitForMessage(ws)).toMatchObject({ event: 'error', message: 'Order not found' });
+    ws.send(JSON.stringify({ action: 'join', orderId: 'private' }));
+    expect(await waitForMessage(ws)).toMatchObject({ event: 'error', code: 403 });
+    ws.close();
+  });
+
+  it('rejects chat and history actions until the room is joined', async () => {
+    pool.query
+      .mockResolvedValueOnce({ rows: [{ id: 1, address: ADDRESS, is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ order_id: 'order_1', xrpl_address: ADDRESS, counterparty_address: null }] });
+    const ws = await connect();
+    ws.send(JSON.stringify({ action: 'auth', token: token() }));
+    await waitForMessage(ws);
+
+    ws.send(JSON.stringify({ action: 'chat', orderId: 'order_1', text: 'hello' }));
+    expect(await waitForMessage(ws)).toMatchObject({ event: 'error', message: 'Must join room first' });
+    ws.send(JSON.stringify({ action: 'history', orderId: 'order_1' }));
+    expect(await waitForMessage(ws)).toMatchObject({ event: 'error', message: 'Must join room first' });
+    ws.close();
+  });
+
+  it('rejects empty chat and unknown actions after authentication', async () => {
+    pool.query
+      .mockResolvedValueOnce({ rows: [{ id: 1, address: ADDRESS, is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ order_id: 'order_1', xrpl_address: ADDRESS, counterparty_address: null }] });
+    const ws = await connect();
+    ws.send(JSON.stringify({ action: 'auth', token: token() }));
+    await waitForMessage(ws);
+
+    ws.send(JSON.stringify({ action: 'join', orderId: 'order_1' }));
+    await waitForMessage(ws);
+    ws.send(JSON.stringify({ action: 'chat', orderId: 'order_1', text: '   ' }));
+    expect(await waitForMessage(ws)).toMatchObject({ event: 'error', message: 'Empty message' });
+    ws.send(JSON.stringify({ action: 'unknown' }));
+    expect(await waitForMessage(ws)).toMatchObject({ event: 'error', message: 'Unknown action' });
+    ws.close();
+  });
+
+  it('returns joined chat history and throttles excessive messages', async () => {
+    pool.query
+      .mockResolvedValueOnce({ rows: [{ id: 1, address: ADDRESS, is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ order_id: 'order_1', xrpl_address: ADDRESS, counterparty_address: null }] })
+      .mockResolvedValueOnce({ rows: [{ sender: ADDRESS, text: 'hello', timestamp: 'now' }] });
+    const ws = await connect();
+    ws.send(JSON.stringify({ action: 'auth', token: token() }));
+    await waitForMessage(ws);
+    ws.send(JSON.stringify({ action: 'join', orderId: 'order_1' }));
+    await waitForMessage(ws);
+    ws.send(JSON.stringify({ action: 'history', orderId: 'order_1' }));
+    expect(await waitForMessage(ws)).toMatchObject({
+      event: 'chat_history',
+      messages: [{ text: 'hello' }]
+    });
+
+    for (let i = 0; i < 5; i++) {
+      ws.send(JSON.stringify({ action: 'unknown' }));
+      await waitForMessage(ws);
+    }
+    ws.send(JSON.stringify({ action: 'unknown' }));
+    expect(await waitForMessage(ws)).toMatchObject({ event: 'error', code: 429 });
+    ws.close();
+  });
+
+  it('ignores domain events without the fields required for delivery', () => {
+    for (const eventType of [
+      EVENTS.ORDER_MATCHED,
+      EVENTS.ORDER_COMPLETED,
+      EVENTS.ORDER_CANCELLED,
+      EVENTS.PAYMENT_CONFIRMED,
+      EVENTS.ESCROW_LOCKED,
+      EVENTS.ESCROW_COMPLETED,
+      EVENTS.WALLET_BALANCE_CHANGED
+    ]) {
+      expect(() => emit(eventType, {})).not.toThrow();
+    }
+  });
+
+  it('reports empty room and heartbeat metrics safely', () => {
+    expect(getRoomMemberCount('missing-room')).toBe(0);
+    expect(getDeadConnectionCount()).toBe(0);
   });
 
   it('broadcasts order_status to authenticated sockets that did not join the room', async () => {

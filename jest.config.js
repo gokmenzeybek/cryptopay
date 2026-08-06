@@ -36,15 +36,11 @@ module.exports = {
   // Setup files
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   
-  // Module name mapping for absolute imports
-  moduleNameMapping: {
+  // Module aliases plus the real Node crypto implementation.
+  moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@services/(.*)$': '<rootDir>/services/$1',
-    '^@middleware/(.*)$': '<rootDir>/middleware/$1'
-  },
-
-  // Pin core crypto to the real Node implementation (jest may resolve a shim)
-  moduleNameMapper: {
+    '^@middleware/(.*)$': '<rootDir>/middleware/$1',
     '^crypto$': '<rootDir>/tests/shims/nodeCrypto.js'
   },
   

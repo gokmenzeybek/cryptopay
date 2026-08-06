@@ -45,14 +45,19 @@ const logger = require('./utils/logger');
 const tryRateScraperService = require('./services/tryRateScraperService');
 const p2pMatchingService = require('./services/p2pMatchingService');
 const xrplEscrowService = require('./services/xrplEscrowService');
-const xrplClientService = require('./services/xrplClientService');
 const burnerWalletService = require('./services/burnerWalletService');
 const lendingService = require('./services/lendingService');
 const { initWebSocketServer, broadcastOrderUpdate } = require('./services/websocketService');
+const { initializeQueues } = require('./services/queueWorkers');
+const { initPool: initXRPLPool, getClient: getXRPLClient } = require('./services/xrplClientService');
+const { initSubscriptions } = require('./services/xrplSubscriptionService');
+const { getOrderBook, invalidateOrderBookCache } = require('./services/orderBookCache');
+const { processOutboxEvents } = require('./services/outboxService');
+const { EVENTS, emit } = require('./services/eventBus');
 
 // Import database modules
-const { pool, testConnection, healthCheck } = require('./database/connection');
-const { WalletsDAL, TransactionsDAL, PaymentRequestsDAL, P2POrdersDAL, PaparaPaymentsDAL, SystemSettingsDAL } = require('./database/dal');
+const { pool, testConnection, healthCheck, getPoolStatus, getReadReplicaMetrics } = require('./database/connection');
+const { WalletsDAL, TransactionsDAL, PaymentRequestsDAL, P2POrdersDAL, PaparaPaymentsDAL, SystemSettingsDAL, WebhookEventsDAL } = require('./database/dal');
 
 // Import authentication modules
 const crypto = require('crypto');
@@ -60,6 +65,7 @@ const jwt = require('jsonwebtoken');
 const xrpl = require('xrpl');
 const rippleKeypairs = require('ripple-keypairs');
 const authMiddleware = require('./middleware/auth');
+const { idempotencyMiddleware } = require('./middleware/idempotency');
 // No fallback: JWT_SECRET is mandatory. startServer() refuses to boot in
 // production without it (see validateEnvironment); in tests it is provided
 // by tests/setup.js.
@@ -192,17 +198,22 @@ app.get('/health', (req, res) => {
 // Detailed health check (bypasses rate-limiting for infrastructure probes)
 app.get('/api/health', catchAsync(async (req, res) => {
   const dbHealth = await healthCheck();
+  const poolStatus = await getPoolStatus();
+  const replicaMetrics = await getReadReplicaMetrics().catch(() => ({ available: false }));
+  const overallHealthy = dbHealth.healthy && poolStatus.healthy;
 
-  res.status(dbHealth.healthy ? 200 : 503).json({
-    success: dbHealth.healthy,
-    status: dbHealth.healthy ? 'healthy' : 'unhealthy',
+  res.status(overallHealthy ? 200 : 503).json({
+    success: overallHealthy,
+    status: overallHealthy ? 'healthy' : 'unhealthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: NODE_ENV,
     database: {
       status: dbHealth.healthy ? 'connected' : 'disconnected',
       type: 'postgresql',
-      responseTime: dbHealth.responseTime
+      responseTime: dbHealth.responseTime,
+      pool: poolStatus,
+      readReplica: replicaMetrics
     },
     memory: {
       used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
@@ -439,6 +450,14 @@ app.post('/api/burner/wallets',
   createRateLimiter(15 * 60 * 1000, parseInt(process.env.RATE_LIMIT_BURNER) || 10),
   catchAsync(async (req, res) => {
     const burner = await burnerWalletService.createBurner();
+
+    // Notify subscribers that a new wallet was created (balance changed from zero)
+    emit(EVENTS.WALLET_BALANCE_CHANGED, {
+      xrplAddress: burner.address,
+      txHash: null,
+      currency: 'XRP'
+    });
+
     res.status(201).json({
       success: true,
       address: burner.address,
@@ -596,11 +615,13 @@ app.post('/api/p2p/quick-match',
       expires_at: syntheticBuy.expiresAt,
       metadata: { source: 'quick-match', referenceCode }
     });
+    emit(EVENTS.ORDER_CREATED, { orderId: businessId(buyOrder), orderType: 'buy', amountXrp: xrpAmt, amountTry: tryAmt, rate, xrplAddress: buyerAddress, paymentMethod });
 
     // 7. Atomically match buy ↔ sell (throws if either is no longer open)
     const sellOrderId = businessId(bestSeller);
     try {
       await P2POrdersDAL.matchOrders(businessId(buyOrder), sellOrderId);
+      emit(EVENTS.ORDER_MATCHED, { orderId: businessId(buyOrder), buyerAddress, sellerAddress: bestSeller.xrpl_address, amountXrp: xrpAmt });
     } catch (err) {
       // Race: seller was matched by someone else — clean up the buyer order
       await P2POrdersDAL.update(businessId(buyOrder), { status: 'cancelled' });
@@ -771,6 +792,7 @@ app.post('/api/p2p/create-order',
       expires_at: order.expiresAt,
       metadata: order.metadata
     });
+    try { await invalidateOrderBookCache(); } catch (err) {}
 
     // Find potential matches
     const allOrders = await P2POrdersDAL.getAll(100);
@@ -797,14 +819,16 @@ app.get('/api/p2p/orders',
   catchAsync(async (req, res) => {
     const { type, status = 'open', limit = 50, offset = 0 } = req.query;
 
-    const orders = await P2POrdersDAL.getFiltered({
-      type,
-      status,
-      limit: Math.min(parseInt(limit), 100),
-      offset: parseInt(offset)
-    });
+    const parsedLimit = Math.min(parseInt(limit), 100);
+    const parsedOffset = parseInt(offset);
 
-    // Convert to API guide format
+    let orders;
+    const isOpenBoard = (!status || status === 'open') && !parsedOffset;
+    if (isOpenBoard) {
+      orders = await getOrderBook(parsedLimit);
+    } else {
+      orders = await P2POrdersDAL.getFiltered({ type, status, limit: parsedLimit, offset: parsedOffset });
+    }
     const formattedOrders = orders.map(order => p2pMatchingService.getOrderSummary(order));
 
     res.json({
@@ -883,6 +907,7 @@ app.post('/api/p2p/match',
     body('counterpartyOrderId').notEmpty().withMessage('Counterparty order ID is required'),
     validateRequest
   ],
+  idempotencyMiddleware({ ttlSeconds: 3600, required: false }),
   catchAsync(async (req, res) => {
     const { orderId, counterpartyOrderId } = req.body;
 
@@ -974,6 +999,7 @@ app.post('/api/p2p/match',
       logger.warn('Order match failed at persistence layer', { orderId, counterpartyOrderId, error: err.message });
       return conflict(err.message);
     }
+    try { await invalidateOrderBookCache(); } catch (err) {}
 
     // Persist non-critical match metadata (counterparty address + escrow prep fields)
     await P2POrdersDAL.update(businessId(order1), {
@@ -1037,6 +1063,7 @@ app.post('/api/p2p/confirm-payment',
     body('proofOfPayment').isObject().withMessage('Proof of payment is required'),
     validateRequest
   ],
+  idempotencyMiddleware({ ttlSeconds: 3600, required: false }),
   catchAsync(async (req, res) => {
     const { orderId, proofOfPayment } = req.body;
 
@@ -1104,6 +1131,7 @@ app.post('/api/p2p/confirm-xrp',
     body('xrpTransactionHash').matches(/^[A-Fa-f0-9]{64}$/).withMessage('Invalid transaction hash'),
     validateRequest
   ],
+  idempotencyMiddleware({ ttlSeconds: 3600, required: false }),
   catchAsync(async (req, res) => {
     const { orderId, xrpTransactionHash } = req.body;
 
@@ -1132,7 +1160,7 @@ app.post('/api/p2p/confirm-xrp',
     }
 
     // Confirm XRP transfer with on-chain verification (shared client)
-    const client = await xrplClientService.getClient();
+    const client = await getXRPLClient();
     try {
       await p2pMatchingService.confirmXrpTransfer(order, xrpTransactionHash, client);
     } catch (err) {
@@ -1204,6 +1232,18 @@ app.post('/api/p2p/confirm-xrp',
 
     logger.logP2P('xrp_confirmed', { orderId, xrpTransactionHash });
 
+    // Notify subscribers that wallet balances may have changed
+    emit(EVENTS.WALLET_BALANCE_CHANGED, {
+      xrplAddress: order.buyer_address || order.buyerAddress,
+      txHash: xrpTransactionHash,
+      currency: 'XRP'
+    });
+    emit(EVENTS.WALLET_BALANCE_CHANGED, {
+      xrplAddress: order.seller_address || order.sellerAddress || req.user.address,
+      txHash: xrpTransactionHash,
+      currency: 'XRP'
+    });
+
     res.json({
       success: true,
       message: 'P2P trade completed successfully',
@@ -1229,6 +1269,7 @@ app.post('/api/p2p/cancel',
     body('reason').optional().isString().withMessage('Reason must be a string'),
     validateRequest
   ],
+  idempotencyMiddleware({ ttlSeconds: 3600, required: false }),
   catchAsync(async (req, res) => {
     const { orderId, reason } = req.body;
 
@@ -1293,6 +1334,7 @@ app.post('/api/p2p/cancel',
             counterpartyAddress: null,
             matchedAt: null
           });
+          try { await invalidateOrderBookCache(); } catch (err) {}
           broadcastOrderUpdate(businessId(counterparty), 'open');
         }
       }
@@ -1307,6 +1349,7 @@ app.post('/api/p2p/cancel',
 
     // Update in database
     await P2POrdersDAL.update(businessId(order), order);
+    try { await invalidateOrderBookCache(); } catch (err) {}
     if (order.escrowStatus && order.escrowStatus !== order.escrow_status) {
       await P2POrdersDAL.updateEscrow(businessId(order), { escrow_status: order.escrowStatus });
     }
@@ -1562,7 +1605,7 @@ app.post('/api/p2p/submit-escrow-hash',
     }
 
     // Verify the EscrowCreate on-chain; only the seller (escrow owner) may submit
-    const client = await xrplClientService.getClient();
+    const client = await getXRPLClient();
     try {
       await p2pMatchingService.lockEscrowForOrder(order, {
         txHash,
@@ -1639,7 +1682,7 @@ app.post('/api/p2p/confirm-escrow-completion',
     }
 
     // Verify the EscrowFinish/EscrowCancel on-chain before persisting the status
-    const client = await xrplClientService.getClient();
+    const client = await getXRPLClient();
     let completion;
     try {
       completion = await p2pMatchingService.confirmEscrowCompletion(
@@ -1662,6 +1705,16 @@ app.post('/api/p2p/confirm-escrow-completion',
     });
 
     logger.logP2P('escrow_completion_confirmed', { orderId, txHash, status: completion.escrowStatus });
+
+    // Notify subscribers that wallet balances may have changed
+    const destinationAddress = completion.escrowStatus === 'finished'
+      ? (order.buyer_address || order.buyerAddress)
+      : (order.seller_address || order.sellerAddress);
+    emit(EVENTS.WALLET_BALANCE_CHANGED, {
+      xrplAddress: destinationAddress,
+      txHash,
+      currency: 'XRP'
+    });
 
     res.json({
       success: true,
@@ -1944,6 +1997,42 @@ app.post('/api/moderator/sellers',
 );
 
 // ==============================================================================
+// WEBHOOK MONITORING ENDPOINTS (moderator dashboard)
+// ==============================================================================
+
+const { getWebhookStats, getFailedEvents, replayWebhook } = require('./services/webhookMonitorService');
+
+app.get('/api/moderator/webhooks/stats',
+  authMiddleware,
+  adminMiddleware,
+  createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_READ) || 30),
+  catchAsync(async (req, res) => {
+    const stats = await getWebhookStats('papara');
+    res.json({ success: true, stats });
+  })
+);
+
+app.get('/api/moderator/webhooks/failed',
+  authMiddleware,
+  adminMiddleware,
+  createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_READ) || 30),
+  catchAsync(async (req, res) => {
+    const failed = await getFailedEvents('papara', 20);
+    res.json({ success: true, count: failed.length, events: failed });
+  })
+);
+
+app.post('/api/moderator/webhooks/replay/:eventId',
+  authMiddleware,
+  adminMiddleware,
+  createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_CONVERSION) || 10),
+  catchAsync(async (req, res) => {
+    const result = await replayWebhook(parseInt(req.params.eventId));
+    res.json({ success: true, ...result });
+  })
+);
+
+// ==============================================================================
 // PAPARA WEBHOOK ENDPOINT
 // ==============================================================================
 
@@ -1985,6 +2074,16 @@ app.post('/api/webhooks/papara',
       crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
 
     if (!signaturesMatch) {
+      await WebhookEventsDAL.create({
+        webhookType: 'papara',
+        referenceId: null,
+        payload: rawBody.toString('utf8').substring(0, 10000),
+        headers: { signature_present: Boolean(signature) },
+        signatureValid: false,
+        processingStatus: 'rejected',
+        rejectionReason: 'Invalid HMAC signature',
+        ipAddress: req.ip
+      }).catch(() => {});
       return res.status(401).json({
         success: false,
         error: 'Unauthorized',
@@ -2081,27 +2180,38 @@ app.post('/api/webhooks/papara',
       return domainError(res, new Error(`Cannot process payment webhook for order in status: ${order.status}`));
     }
 
-    // Mark the mapping processed first (idempotency guard), then advance state
-    await PaparaPaymentsDAL.markProcessed(referenceId, 'completed');
+    // Log accepted webhook event
+    const webhookEvent = await WebhookEventsDAL.create({
+      webhookType: 'papara',
+      referenceId,
+      payload,
+      headers: { signature_valid: true },
+      signatureValid: true,
+      processingStatus: 'accepted',
+      ipAddress: req.ip
+    }).catch(() => null);
 
-    // Mark payment as confirmed and notify trade participants
-    const updated = await P2POrdersDAL.updateStatus(payment.order_id, 'payment_confirmed', {
-      payment_reference: referenceId
+    // Queue for async processing (idempotent: worker checks processed_at)
+    const { queuePaparaPayment } = require('./services/paparaPaymentService');
+    await queuePaparaPayment({
+      orderId: payment.order_id,
+      paparaPaymentId: payment.transaction_id,
+      amount: payment.amount_try,
+      referenceId
     });
 
-    broadcastOrderUpdate(payment.order_id, 'payment_confirmed');
-    if (order.counterparty_order_id) {
-      broadcastOrderUpdate(order.counterparty_order_id, 'payment_confirmed');
+    if (webhookEvent) {
+      await WebhookEventsDAL.updateStatus(webhookEvent.id, 'processing').catch(() => {});
     }
 
-    logger.logP2P('papara_webhook_payment_confirmed', { orderId: payment.order_id, referenceId, amount });
+    logger.logP2P('papara_webhook_queued', { orderId: payment.order_id, referenceId, amount });
 
     res.json({
       success: true,
-      message: 'Payment confirmed via Papara webhook',
+      message: 'Payment queued for processing via Papara webhook',
       order: {
-        id: businessId(updated),
-        status: updated.status
+        id: businessId(payment.order_id),
+        status: order.status
       }
     });
   })
@@ -2254,7 +2364,7 @@ app.get('/api/p2p/stats',
   createRateLimiter(60 * 1000, parseInt(process.env.RATE_LIMIT_READ) || 10),
   catchAsync(async (req, res) => {
     // SQL aggregation (snake_case keys match the frontend stats grid)
-    const stats = await P2POrdersDAL.getStats();
+    const stats = await P2POrdersDAL.getStatsCached();
 
     res.json({
       success: true,
@@ -2507,7 +2617,7 @@ app.patch('/api/payment_requests/:requestId/paid',
 
     // Verify on-chain: the tx must be a successful Payment delivering at
     // least the requested amount to the request's recipient address.
-    const client = await xrplClientService.getClient();
+    const client = await getXRPLClient();
     try {
       const txResponse = await client.request({ command: 'tx', transaction: txHash });
       const txJson = txResponse.result.tx_json || txResponse.result;
@@ -2679,10 +2789,12 @@ const startServer = async () => {
 
     logger.info('Database connected successfully');
 
-    // Warm the shared XRPL connection in the background so the first user
-    // request never pays the WebSocket handshake. Non-fatal on failure.
+    // Initialize XRPL connection pool so concurrent blockchain ops don't
+    // serialize through a single WebSocket. Non-fatal on failure.
     if (process.env.NODE_ENV !== 'test') {
-      xrplClientService.warmUp();
+      initXRPLPool().catch(err => {
+        logger.error('Failed to initialize XRPL pool', { error: err.message });
+      });
     }
 
     // Automatically run database migrations to ensure schema is up-to-date
@@ -2749,6 +2861,22 @@ const startServer = async () => {
       initWebSocketServer(server);
     }
 
+    // Initialize job queue workers (BullMQ if Redis, in-memory fallback otherwise)
+    if (process.env.NODE_ENV !== 'test') {
+      initializeQueues().catch(err => {
+        logger.error('Failed to initialize queue workers', { error: err.message });
+      });
+    }
+
+    // Initialize XRPL transaction subscriptions (real-time tx monitoring)
+    if (process.env.NODE_ENV !== 'test') {
+      getXRPLClient().then(client => {
+        return initSubscriptions(client);
+      }).catch(err => {
+        logger.error('Failed to initialize XRPL subscriptions', { error: err.message });
+      });
+    }
+
     // Periodically unwind expired locked escrows (default cancel-after: 24h)
     if (process.env.NODE_ENV !== 'test') {
       const escrowSweepInterval = parseInt(process.env.ESCROW_SWEEP_INTERVAL_MS, 10) || 60 * 60 * 1000;
@@ -2757,7 +2885,7 @@ const startServer = async () => {
         try {
           const expired = await P2POrdersDAL.getExpiredLockedEscrows();
           if (expired.length > 0) {
-            client = await xrplClientService.getClient();
+            client = await getXRPLClient();
           }
           let cancelledCount = 0;
           for (const order of expired) {
@@ -2818,6 +2946,32 @@ const startServer = async () => {
       sweepExpiredPaymentRequests();
       const paymentRequestExpiryTimer = setInterval(sweepExpiredPaymentRequests, paymentRequestExpiryInterval);
       paymentRequestExpiryTimer.unref();
+
+      // Outbox publisher — processes unpublished events every 5 seconds
+      const outboxInterval = setInterval(async () => {
+        try {
+          const result = await processOutboxEvents();
+          if (result.failed > 0) {
+            logger.warn('Outbox publish failures', { failed: result.failed });
+          }
+        } catch (err) {
+          logger.error('Outbox sweeper error', { error: err.message });
+        }
+      }, 5000);
+      outboxInterval.unref();
+
+      // Webhook event cleanup — 90-day retention, daily sweep
+      const webhookCleanupInterval = setInterval(async () => {
+        try {
+          const deleted = await WebhookEventsDAL.cleanupOldEvents(90);
+          if (deleted > 0) {
+            logger.info('Cleaned up old webhook events', { deleted });
+          }
+        } catch (err) {
+          logger.error('Webhook cleanup failed', { error: err.message });
+        }
+      }, 24 * 60 * 60 * 1000);
+      webhookCleanupInterval.unref();
     }
 
     // Set server timeout

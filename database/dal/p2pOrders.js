@@ -3,7 +3,11 @@
  * Handles all database operations for P2P orders
  */
 
-const { pool } = require('../connection');
+const { pool, readQuery } = require('../connection');
+const { get: redisGet, set: redisSet, del: redisDel } = require('../../services/redisClient');
+
+const STATS_CACHE_KEY = 'cryptopay:stats:platform';
+const STATS_CACHE_TTL_MS = 30 * 1000; // 30 seconds (note: set() takes ms, not seconds)
 
 const FULL_COLUMNS = `id, order_id, xrpl_address, order_type, amount_xrp, amount_try, rate,
        payment_methods, status, counterparty_order_id, counterparty_address,
@@ -12,7 +16,21 @@ const FULL_COLUMNS = `id, order_id, xrpl_address, order_type, amount_xrp, amount
        dispute_created_at, escrow_status, escrow_transaction_hash, escrow_sequence,
        escrow_owner, escrow_condition, escrow_created_at, escrow_finished_at,
        escrow_cancel_after, escrow_preimage, metadata, escrow_source, lent_xrp,
-       settlement_status, gross_try, cut_try, seller_payout_try, settled_at`;
+        settlement_status, gross_try, cut_try, seller_payout_try, settled_at`;
+
+// Lean column set for the public order book (10 cols vs 36) — avoids fetching escrow/dispute/match metadata
+const ORDER_BOARD_COLUMNS = `
+  id, order_type, status, xrpl_address,
+  amount_xrp, amount_try, rate, payment_methods,
+  expires_at, created_at
+`;
+
+// Lean column set for the authenticated "my orders" view (12 cols)
+const MY_ORDERS_COLUMNS = `
+  id, order_type, status, xrpl_address,
+  amount_xrp, amount_try, rate, payment_methods,
+  expires_at, escrow_status, created_at, completed_at
+`;
 
 class P2POrdersDAL {
   /**
@@ -25,7 +43,7 @@ class P2POrdersDAL {
       ORDER BY created_at DESC
       LIMIT $1 OFFSET $2
     `;
-    const result = await pool.query(query, [limit, offset]);
+    const result = await readQuery(query, [limit, offset]);
     return result.rows;
   }
 
@@ -50,17 +68,32 @@ class P2POrdersDAL {
   }
 
   /**
-   * Get orders by XRPL address
+   * Get orders by XRPL address with optional status filter.
+   * @param {string} xrpl_address - Wallet address
+   * @param {Object|number} options - Options object or positional limit (backwards compat)
+   * @param {string} [options.status] - Filter by order status
+   * @param {number} [options.limit=50] - Max results
+   * @param {number} [options.offset=0] - Skip results
+   * @returns {Promise<Array>} Array of order objects
    */
-  static async getByAddress(xrpl_address, limit = 50, offset = 0) {
-    const query = `
-      SELECT ${FULL_COLUMNS}
-      FROM p2p_orders
-      WHERE xrpl_address = $1
-      ORDER BY created_at DESC
-      LIMIT $2 OFFSET $3
-    `;
-    const result = await pool.query(query, [xrpl_address, limit, offset]);
+  static async getByAddress(xrpl_address, options = {}) {
+    const { status, limit = 50, offset = 0 } = typeof options === 'number' 
+      ? { limit: options }  // backwards compat: positional limit arg
+      : options;
+    
+    let query = `SELECT ${FULL_COLUMNS} FROM p2p_orders WHERE xrpl_address = $1`;
+    const params = [xrpl_address];
+    let paramIdx = 2;
+    
+    if (status) {
+      query += ` AND status = $${paramIdx++}`;
+      params.push(status);
+    }
+    
+    query += ` ORDER BY created_at DESC LIMIT $${paramIdx++} OFFSET $${paramIdx++}`;
+    params.push(limit, offset);
+    
+    const result = await pool.query(query, params);
     return result.rows;
   }
 
@@ -103,7 +136,7 @@ class P2POrdersDAL {
       ORDER BY created_at DESC
       LIMIT $2 OFFSET $3
     `;
-    const result = await pool.query(query, [status, limit, offset]);
+    const result = await readQuery(query, [status, limit, offset]);
     return result.rows;
   }
 
@@ -118,7 +151,7 @@ class P2POrdersDAL {
       ORDER BY dispute_created_at DESC
       LIMIT $1 OFFSET $2
     `;
-    const result = await pool.query(query, [limit, offset]);
+    const result = await readQuery(query, [limit, offset]);
     return result.rows;
   }
 
@@ -134,6 +167,37 @@ class P2POrdersDAL {
       LIMIT $2
     `;
     const result = await pool.query(query, [order_type, limit]);
+    return result.rows;
+  }
+
+  /**
+   * Lean fetch of the open order book — uses ORDER_BOARD_COLUMNS (10 cols vs 36).
+   * Covers the (order_type, status, expires_at) composite index.
+   * @param {Object} options
+   * @param {string} [options.order_type] - 'buy' or 'sell' or null for all
+   * @param {number} [options.limit=100]
+   * @returns {Promise<Array>} Array of lean order objects
+   */
+  static async getOpenOrdersForBoard({ order_type = null, limit = 100 } = {}) {
+    if (order_type) {
+      const query = `SELECT ${ORDER_BOARD_COLUMNS} FROM p2p_orders WHERE order_type = $1 AND status = 'open' AND expires_at > NOW() ORDER BY created_at ASC LIMIT $2`;
+      const result = await readQuery(query, [order_type, limit]);
+      return result.rows;
+    }
+    const query = `SELECT ${ORDER_BOARD_COLUMNS} FROM p2p_orders WHERE status = 'open' AND expires_at > NOW() ORDER BY created_at ASC LIMIT $1`;
+    const result = await readQuery(query, [limit]);
+    return result.rows;
+  }
+
+  /**
+   * Lean fetch of a single user's orders — uses MY_ORDERS_COLUMNS (12 cols).
+   * @param {string} xrpl_address
+   * @param {number} [limit=50]
+   * @returns {Promise<Array>} Array of lean order objects
+   */
+  static async getMyOrdersLean(xrpl_address, limit = 50) {
+    const query = `SELECT ${MY_ORDERS_COLUMNS} FROM p2p_orders WHERE xrpl_address = $1 ORDER BY created_at DESC LIMIT $2`;
+    const result = await readQuery(query, [xrpl_address, limit]);
     return result.rows;
   }
 
@@ -173,6 +237,7 @@ class P2POrdersDAL {
       order_id, xrpl_address, order_type, amount_xrp, 
       amount_try, rate, payment_methods, expires_at, metadata
     ]);
+    await this._invalidateStatsCache();
     return result.rows[0];
   }
 
@@ -228,6 +293,8 @@ class P2POrdersDAL {
       const matchResult = await client.query(matchQuery, [buy_order_id, sell_order_id]);
 
       await client.query('COMMIT');
+
+      await this._invalidateStatsCache();
 
       return {
         buy_order: buyResult.rows[0],
@@ -287,6 +354,7 @@ class P2POrdersDAL {
     `;
 
     const result = await pool.query(query, params);
+    await this._invalidateStatsCache();
     return result.rows[0] || null;
   }
 
@@ -316,6 +384,7 @@ class P2POrdersDAL {
     `;
 
     const result = await pool.query(query);
+    await this._invalidateStatsCache();
     return result.rows;
   }
 
@@ -329,7 +398,7 @@ class P2POrdersDAL {
       WHERE escrow_status = 'locked' AND escrow_cancel_after < NOW()
       ORDER BY escrow_cancel_after ASC
     `;
-    const result = await pool.query(query);
+    const result = await readQuery(query);
     return result.rows;
   }
 
@@ -384,6 +453,7 @@ class P2POrdersDAL {
     `;
 
     const result = await pool.query(query, values);
+    await this._invalidateStatsCache();
     return result.rows[0] || null;
   }
 
@@ -416,7 +486,7 @@ class P2POrdersDAL {
       ORDER BY created_at DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
-    const result = await pool.query(query, params);
+    const result = await readQuery(query, params);
     return result.rows;
   }
 
@@ -424,7 +494,7 @@ class P2POrdersDAL {
    * Get total order count
    */
   static async getCount() {
-    const result = await pool.query('SELECT COUNT(*) as count FROM p2p_orders');
+    const result = await readQuery('SELECT COUNT(*) as count FROM p2p_orders');
     return parseInt(result.rows[0].count, 10);
   }
 
@@ -453,8 +523,46 @@ class P2POrdersDAL {
       FROM p2p_orders
     `;
 
-    const result = await pool.query(query);
+    const result = await readQuery(query);
     return result.rows[0];
+  }
+
+  /**
+   * Get P2P order statistics with a 30s Redis cache.
+   * Falls back to the database when Redis is unavailable so the endpoint
+   * stays available regardless of cache state.
+   */
+  static async getStatsCached() {
+    try {
+      const cached = await redisGet(STATS_CACHE_KEY);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (err) {
+      // Cache read failure — fall through to DB
+    }
+
+    const stats = await P2POrdersDAL.getStats();
+
+    try {
+      await redisSet(STATS_CACHE_KEY, JSON.stringify(stats), STATS_CACHE_TTL_MS);
+    } catch (err) {
+      // Cache write failure is non-fatal
+    }
+
+    return stats;
+  }
+
+  /**
+   * Invalidate the cached platform stats. Called after any mutation that
+   * could change the aggregates reported by getStats().
+   */
+  static async _invalidateStatsCache() {
+    try {
+      await redisDel(STATS_CACHE_KEY);
+    } catch (err) {
+      // Cache delete failure is non-fatal
+    }
   }
 
   /**
@@ -480,6 +588,7 @@ class P2POrdersDAL {
     `;
 
     const result = await pool.query(query, values);
+    await this._invalidateStatsCache();
     return result.rows[0] || null;
   }
 
@@ -562,6 +671,7 @@ class P2POrdersDAL {
     `;
 
     const result = await pool.query(query, values);
+    await this._invalidateStatsCache();
     return result.rows[0] || null;
   }
 
@@ -570,14 +680,37 @@ class P2POrdersDAL {
    */
   static async delete(order_id) {
     const query = `
-      DELETE FROM p2p_orders 
+      DELETE FROM p2p_orders
       WHERE order_id = $1
       RETURNING id, order_id, xrpl_address, order_type, amount_xrp, amount_try, rate,
                 payment_methods, status, created_at, expires_at
     `;
 
     const result = await pool.query(query, [order_id]);
+    await this._invalidateStatsCache();
     return result.rows[0] || null;
+  }
+
+  /**
+   * Get burner wallets ready for sweep (destruction).
+   * Joins burner_wallets with p2p_orders to find completed/cancelled trades.
+   * @param {number} [limit=10]
+   * @returns {Promise<Array>} Array of { address, order_id, status, funded_at, created_at, deleted_at }
+   */
+  static async getBurnersForSweep(limit = 10) {
+    const query = `
+      SELECT b.address, b.order_id, b.status, b.funded_at, b.created_at, b.deleted_at
+      FROM burner_wallets b
+      INNER JOIN p2p_orders o ON o.order_id = b.order_id
+      WHERE b.deleted_at IS NULL
+        AND b.funded_at IS NOT NULL
+        AND o.status IN ('completed', 'cancelled')
+        AND b.created_at < NOW() - INTERVAL '5 minutes'
+      ORDER BY b.created_at ASC
+      LIMIT $1
+    `;
+    const result = await pool.query(query, [limit]);
+    return result.rows;
   }
 }
 

@@ -15,11 +15,14 @@ const mockClient = {
 const mockPool = {
   query: jest.fn(),
   connect: jest.fn().mockResolvedValue(mockClient),
-  end: jest.fn()
+  end: jest.fn(),
+  // readQuery delegates to pool.query in tests (no replica configured)
+  readQuery: jest.fn()
 };
 
 jest.mock('../connection', () => ({
-  pool: mockPool
+  pool: mockPool,
+  readQuery: (text, params) => mockPool.readQuery(text, params)
 }));
 
 const { WalletsDAL, TransactionsDAL, PaymentRequestsDAL, P2POrdersDAL } = require('../dal');
@@ -30,6 +33,13 @@ const norm = (sql) => sql.replace(/\s+/g, ' ').trim();
 /** Assert the last pool.query call matches the normalized SQL and exact params. */
 function expectQuery(sqlFragment, params) {
   const call = mockPool.query.mock.calls[mockPool.query.mock.calls.length - 1];
+  expect(norm(call[0])).toBe(norm(sqlFragment));
+  if (params) expect(call[1]).toEqual(params);
+}
+
+/** Assert the last readQuery call matches the normalized SQL and exact params. */
+function expectReadQuery(sqlFragment, params) {
+  const call = mockPool.readQuery.mock.calls[mockPool.readQuery.mock.calls.length - 1];
   expect(norm(call[0])).toBe(norm(sqlFragment));
   if (params) expect(call[1]).toEqual(params);
 }
@@ -232,14 +242,14 @@ describe('Database DAL Modules', () => {
 
   describe('P2POrdersDAL', () => {
     describe('getAll', () => {
-      it('should return all P2P orders with limit', async () => {
+       it('should return all P2P orders with limit', async () => {
         const mockOrders = [{ order_id: 'order_123', status: 'open' }];
-        mockPool.query.mockResolvedValueOnce({ rows: mockOrders });
+        mockPool.readQuery.mockResolvedValueOnce({ rows: mockOrders });
 
         const result = await P2POrdersDAL.getAll(10);
 
         expect(result).toEqual(mockOrders);
-        const call = mockPool.query.mock.calls[0];
+        const call = mockPool.readQuery.mock.calls[0];
         expect(norm(call[0])).toContain('FROM p2p_orders ORDER BY created_at DESC LIMIT $1 OFFSET $2');
         expect(call[1]).toEqual([10, 0]);
       });
@@ -406,14 +416,14 @@ describe('Database DAL Modules', () => {
     });
 
     describe('getStats', () => {
-      it('should return aggregated P2P order statistics', async () => {
+       it('should return aggregated P2P order statistics', async () => {
         const mockStats = { total_orders: 100, open_orders: 20, avg_rate: 10.5 };
-        mockPool.query.mockResolvedValueOnce({ rows: [mockStats] });
+        mockPool.readQuery.mockResolvedValueOnce({ rows: [mockStats] });
 
         const result = await P2POrdersDAL.getStats();
 
         expect(result).toEqual(mockStats);
-        const call = mockPool.query.mock.calls[0];
+        const call = mockPool.readQuery.mock.calls[0];
         expect(norm(call[0])).toContain('COUNT(*) as total_orders');
         expect(norm(call[0])).toContain('FROM p2p_orders');
       });

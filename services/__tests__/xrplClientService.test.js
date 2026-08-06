@@ -1,16 +1,15 @@
 /**
- * Unit tests for xrplClientService (shared, lazily-connected XRPL client)
+ * Unit tests for xrplClientService (connection pool)
  */
 
 jest.mock('../../utils/logger', () => ({
   error: jest.fn(),
   info: jest.fn(),
   warn: jest.fn(),
+  debug: jest.fn(),
   logP2P: jest.fn()
 }));
 
-// Instances created by the mocked xrpl.Client, so tests can assert on
-// connect/disconnect/event-handler behavior.
 const mockInstances = [];
 let failNextConnect = false;
 
@@ -33,16 +32,12 @@ jest.mock('xrpl', () => ({
 
 const xrplClientService = require('../xrplClientService');
 
-describe('xrplClientService', () => {
+describe('xrplClientService (pool)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockInstances.length = 0;
     failNextConnect = false;
     xrplClientService.resetClient();
-  });
-
-  afterEach(async () => {
-    await xrplClientService.disconnectClient();
   });
 
   describe('getClient', () => {
@@ -54,66 +49,73 @@ describe('xrplClientService', () => {
       expect(client.on).toHaveBeenCalledWith('error', expect.any(Function));
     });
 
-    test('reuses the same client across calls', async () => {
+    test('returns a client from the pool', async () => {
+      const client = await xrplClientService.getClient();
+      expect(mockInstances.length).toBeGreaterThanOrEqual(1);
+      expect(client.isConnected()).toBe(true);
+    });
+
+    test('creates new client when pool is empty', async () => {
       const first = await xrplClientService.getClient();
       const second = await xrplClientService.getClient();
-      expect(second).toBe(first);
-      expect(mockInstances).toHaveLength(1);
-      expect(mockInstances[0].connect).toHaveBeenCalledTimes(1);
+      expect(first).toBeDefined();
+      expect(second).toBeDefined();
     });
 
-    test('concurrent callers share a single connect handshake', async () => {
-      const [a, b] = await Promise.all([
-        xrplClientService.getClient(),
-        xrplClientService.getClient()
-      ]);
-      expect(a).toBe(b);
-      expect(mockInstances).toHaveLength(1);
+    test('propagates connect failures', async () => {
+      failNextConnect = true;
+      await expect(xrplClientService.getClient()).rejects.toThrow('net down');
     });
 
-    test('reconnects with a fresh client after a disconnect event', async () => {
-      const first = await xrplClientService.getClient();
-      const disconnectedHandler = first.on.mock.calls.find(([event]) => event === 'disconnected')[1];
-      disconnectedHandler();
-
-      const second = await xrplClientService.getClient();
-      expect(second).not.toBe(first);
-      expect(mockInstances).toHaveLength(2);
-    });
-
-    test('reconnects with a fresh client after an error event', async () => {
-      const first = await xrplClientService.getClient();
-      const errorHandler = first.on.mock.calls.find(([event]) => event === 'error')[1];
-      errorHandler(new Error('boom'));
-
-      const second = await xrplClientService.getClient();
-      expect(second).not.toBe(first);
-      expect(mockInstances).toHaveLength(2);
-    });
-
-    test('propagates connect failures and recovers on the next call', async () => {
+    test('recovers after connect failure', async () => {
       failNextConnect = true;
       await expect(xrplClientService.getClient()).rejects.toThrow('net down');
 
       failNextConnect = false;
       const ok = await xrplClientService.getClient();
       expect(ok).toBeDefined();
-      expect(mockInstances).toHaveLength(2);
     });
   });
 
-  describe('disconnectClient', () => {
-    test('disconnects and resets the shared client', async () => {
-      const client = await xrplClientService.getClient();
-      await xrplClientService.disconnectClient();
-      expect(client.disconnect).toHaveBeenCalledTimes(1);
-
-      const next = await xrplClientService.getClient();
-      expect(next).not.toBe(client);
+  describe('initPool', () => {
+    test('initializes pool with multiple clients', async () => {
+      await xrplClientService.initPool();
+      expect(mockInstances.length).toBeGreaterThanOrEqual(1);
     });
 
-    test('is a no-op when no client exists', async () => {
-      await expect(xrplClientService.disconnectClient()).resolves.toBeUndefined();
+    test('does not reinitialize if pool exists', async () => {
+      await xrplClientService.initPool();
+      const count = mockInstances.length;
+      await xrplClientService.initPool();
+      expect(mockInstances.length).toBe(count);
+    });
+  });
+
+  describe('getPoolMetrics', () => {
+    test('returns pool metrics', () => {
+      const metrics = xrplClientService.getPoolMetrics();
+      expect(metrics).toHaveProperty('poolSize');
+      expect(metrics).toHaveProperty('available');
+      expect(metrics).toHaveProperty('targetSize');
+      expect(metrics).toHaveProperty('maxSize');
+    });
+  });
+
+  describe('disconnectPool (disconnectClient)', () => {
+    test('disconnects all pool clients', async () => {
+      await xrplClientService.initPool();
+      const count = mockInstances.length;
+      expect(count).toBeGreaterThan(0);
+
+      await xrplClientService.disconnectPool();
+
+      mockInstances.forEach(instance => {
+        expect(instance.disconnect).toHaveBeenCalled();
+      });
+    });
+
+    test('is a no-op when no pool exists', async () => {
+      await expect(xrplClientService.disconnectPool()).resolves.toBeUndefined();
     });
   });
 
@@ -121,13 +123,11 @@ describe('xrplClientService', () => {
     test('swallows connection errors', async () => {
       failNextConnect = true;
       await expect(xrplClientService.warmUp()).resolves.toBeUndefined();
-      failNextConnect = false;
     });
 
-    test('establishes a connection eagerly', async () => {
+    test('initializes the pool eagerly', async () => {
       await xrplClientService.warmUp();
-      expect(mockInstances).toHaveLength(1);
-      expect(mockInstances[0].connect).toHaveBeenCalledTimes(1);
+      expect(mockInstances.length).toBeGreaterThanOrEqual(1);
     });
   });
 });

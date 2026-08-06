@@ -30,10 +30,24 @@ jest.mock('../../database/dal', () => ({
   PaparaPaymentsDAL: {
     getByReferenceId: jest.fn(),
     markProcessed: jest.fn()
+  },
+  WebhookEventsDAL: {
+    create: jest.fn().mockResolvedValue({ id: 1 }),
+    updateStatus: jest.fn().mockResolvedValue({ id: 1 })
   }
 }));
 
 const { P2POrdersDAL, PaparaPaymentsDAL } = require('../../database/dal');
+
+jest.mock('../../services/paparaPaymentService', () => ({
+  queuePaparaPayment: jest.fn().mockResolvedValue({ id: 'job-1' }),
+  processPaparaPayment: jest.fn()
+}));
+
+jest.mock('../../services/queueWorkers', () => ({
+  initializeQueues: jest.fn().mockResolvedValue(undefined)
+}));
+
 const app = require('../../server.production');
 
 const SECRET = 'test_webhook_secret';
@@ -87,7 +101,7 @@ describe('Papara webhook contract', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.message).toBe('Payment confirmed via Papara webhook');
+      expect(res.body.message).toBe('Payment queued for processing via Papara webhook');
     });
 
     it('verifies the same JSON with a different key order (proves raw-body verification)', async () => {
@@ -120,8 +134,13 @@ describe('Papara webhook contract', () => {
       expect(res.status).toBe(200);
       expect(PaparaPaymentsDAL.getByReferenceId).toHaveBeenCalledWith('P2P_order_123_1700000000000');
       expect(P2POrdersDAL.getById).toHaveBeenCalledWith('order_123');
-      expect(P2POrdersDAL.updateStatus).toHaveBeenCalledWith('order_123', 'payment_confirmed', {
-        payment_reference: 'P2P_order_123_1700000000000'
+      // Payment is queued for async processing
+      const { queuePaparaPayment } = require('../../services/paparaPaymentService');
+      expect(queuePaparaPayment).toHaveBeenCalledWith({
+        orderId: 'order_123',
+        paparaPaymentId: 'tx_1',
+        amount: 250,
+        referenceId: 'P2P_order_123_1700000000000'
       });
     });
 
@@ -132,8 +151,8 @@ describe('Papara webhook contract', () => {
       const res = await postWebhook(raw, sign(raw));
 
       expect(res.status).toBe(404);
-      expect(P2POrdersDAL.updateStatus).not.toHaveBeenCalled();
-      expect(PaparaPaymentsDAL.markProcessed).not.toHaveBeenCalled();
+      const { queuePaparaPayment } = require('../../services/paparaPaymentService');
+      expect(queuePaparaPayment).not.toHaveBeenCalled();
     });
   });
 
@@ -169,7 +188,7 @@ describe('Papara webhook contract', () => {
       const res = await postWebhook(raw, sign(raw));
 
       expect(res.status).toBe(200);
-      expect(res.body.message).toBe('Payment confirmed via Papara webhook');
+      expect(res.body.message).toBe('Payment queued for processing via Papara webhook');
     });
   });
 });

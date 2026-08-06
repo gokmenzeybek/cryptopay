@@ -10,7 +10,10 @@ jest.mock('ioredis', () => {
     constructor() {
       MockRedis.__instances.push(this);
       this.store = new Map();
-      this.connect = jest.fn().mockResolvedValue('OK');
+       this.connect = jest.fn().mockImplementation(async () => {
+         if (MockRedis.__connectError) throw new Error('connect failed');
+         return 'OK';
+       });
       this.disconnect = jest.fn();
       this.on = jest.fn();
       this.set = jest.fn(async (key, value) => {
@@ -96,6 +99,16 @@ describe('redisClient — fallback mode (no REDIS_URL)', () => {
     await r.publish('chan', 'ignored');
     expect(seen).toEqual(['hello', 'world']);
   });
+
+  test('continues publishing when a local subscriber throws', async () => {
+    const r = require('../redisClient');
+    const healthy = jest.fn();
+    await r.subscribe('errors', () => { throw new Error('subscriber failed'); });
+    await r.subscribe('errors', healthy);
+
+    await expect(r.publish('errors', 'payload')).resolves.toBe(1);
+    expect(healthy).toHaveBeenCalledWith('payload');
+  });
 });
 
 describe('redisClient — redis mode (REDIS_URL set)', () => {
@@ -160,5 +173,54 @@ describe('redisClient — redis mode (REDIS_URL set)', () => {
     const subscriber = Redis.__instances[1];
     expect(subscriber.subscribe).toHaveBeenCalledWith('chan');
     expect(typeof unsub).toBe('function');
+  });
+
+  test('handles missing Redis values and supports duplicate/quit lifecycle', async () => {
+    const r = require('../redisClient');
+    const Redis = require('ioredis');
+
+    expect(await r.get('missing')).toBeNull();
+    const first = await r.subscribe('same', () => {});
+    const second = await r.subscribe('same', () => {});
+    expect(typeof first).toBe('function');
+    expect(typeof second).toBe('function');
+
+    expect(() => r.duplicate()).not.toThrow();
+    await r.quit();
+    expect(Redis.__instances[0].disconnect).toHaveBeenCalled();
+  });
+
+  test('falls back when Redis connection fails and logs client errors', async () => {
+    const r = require('../redisClient');
+    const Redis = require('ioredis');
+    Redis.__connectError = true;
+
+    await expect(r.set('fallback', 'value')).resolves.toBe('OK');
+    const client = Redis.__instances[0];
+    const errorHandler = client.on.mock.calls.find(([event]) => event === 'error')[1];
+    errorHandler(new Error('socket error'));
+    expect(await r.get('fallback')).toBe('value');
+    Redis.__connectError = false;
+  });
+
+  test('delivers subscriber messages and contains subscriber handler failures', async () => {
+    const r = require('../redisClient');
+    const Redis = require('ioredis');
+    const handler = jest.fn(() => { throw new Error('handler failed'); });
+    await r.subscribe('messages', handler);
+
+    const subscriber = Redis.__instances[1];
+    const messageHandler = subscriber.on.mock.calls.find(([event]) => event === 'message')[1];
+    messageHandler('messages', 'payload');
+
+    expect(handler).toHaveBeenCalledWith('payload');
+  });
+
+  test('duplicate rejects when Redis is not configured', () => {
+    delete process.env.REDIS_URL;
+    jest.resetModules();
+    const r = require('../redisClient');
+
+    expect(() => r.duplicate()).toThrow('REDIS_URL not configured');
   });
 });

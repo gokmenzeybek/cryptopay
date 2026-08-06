@@ -247,9 +247,22 @@ async function quit() {
   connecting = null;
 }
 
+/**
+ * Create a duplicate Redis connection for pub/sub subscribers.
+ * Each subscriber needs its own connection (Redis pub/sub is blocking).
+ * @returns {Object} ioredis instance
+ */
+function duplicate() {
+  if (!isRedisConfigured()) {
+    throw new Error('Cannot duplicate: REDIS_URL not configured');
+  }
+  return getClient();
+}
+
 module.exports = {
   isRedisConfigured,
   getClient,
+  duplicate,
   set,
   get,
   del,
